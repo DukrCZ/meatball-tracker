@@ -126,6 +126,14 @@
   .node .navs { display:flex; gap:2px; flex:none; cursor:pointer; }
   .node .nav2 { width:15px; height:15px; border-radius:50%; font-size:9px; color:#fff; display:flex; align-items:center; justify-content:center; font-weight:700; border:1px solid rgba(255,255,255,.3); }
   .toolbar button.on { background:#8ab4f8; color:#0e2c17; border-color:#8ab4f8; font-weight:600; }
+  .focusbar { display:flex; align-items:center; gap:10px; padding:7px 14px; background:var(--panel); border-bottom:1px solid var(--line); z-index:6; }
+  .focusbar .ftag { font-size:12px; font-weight:700; color:var(--muted); letter-spacing:.5px; white-space:nowrap; }
+  .focusbar.hasit .ftag { color:var(--st-doing); }
+  .focusbar .ftask { flex:1; font-size:14.5px; font-weight:600; cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--muted); min-width:0; }
+  .focusbar.hasit .ftask { color:var(--text); }
+  .focusbar.hasit { box-shadow:inset 4px 0 0 var(--st-doing); animation:focusglow 2.4s ease infinite; }
+  @keyframes focusglow { 0%,100%{ background:var(--panel); } 50%{ background:#34301f; } }
+  .focusbar button { padding:4px 10px; font-size:12px; }
   .matrow .mhave { width:20px; height:20px; flex:none; border-radius:5px; border:2px solid var(--line); display:flex; align-items:center; justify-content:center; cursor:pointer; color:#fff; font-size:11px; }
   .matrow .mhave.on { background:var(--st-done); border-color:var(--st-done); }
   .matrow .mn.have { text-decoration:line-through; color:var(--muted); }
@@ -232,6 +240,7 @@
     </aside>
     <div style="flex:1; display:flex; flex-direction:column; min-width:0;">
       <div class="secbar" id="secbar"></div>
+      <div class="focusbar" id="focusBar"><span class="ftag">🎯 Děláš:</span><span class="ftask" id="focusTask"></span><button class="btn" id="focusDone">✓ Hotovo</button><button class="btn" id="focusHist" title="Co jsi dělal naposled">⏱ Historie</button></div>
       <div class="mapwrap" id="mapwrap">
         <div class="toolbar">
           <button id="btnFit" title="Vycentrovat">Fit</button>
@@ -411,6 +420,8 @@ function mergeStates(a,b){ // merge po položkách: novější mt vyhrává, tom
   const mm=new Map(); for(const m of (b.members||[])) mm.set(m.name,m); for(const m of (a.members||[])) mm.set(m.name,m); out.members=[...mm.values()];
   if((b.ownedTs||0)>(a.ownedTs||0)){ out.owned=b.owned||[]; out.ownedTs=b.ownedTs; } else { out.owned=a.owned||[]; out.ownedTs=a.ownedTs||0; }
   if((b.metaTs||0)>(a.metaTs||0)){ out.waypoints=b.waypoints||{}; out.layoutDir=b.layoutDir; out.metaTs=b.metaTs; } else { out.waypoints=a.waypoints||{}; out.layoutDir=a.layoutDir; out.metaTs=a.metaTs||0; }
+  const am=new Map(); for(const x of [...(b.activity||[]),...(a.activity||[])]) am.set(x.ts+'|'+x.who+'|'+x.id,x);
+  out.activity=[...am.values()].sort((x,y)=>x.ts-y.ts).slice(-120);
   out.deleted=del; out.rev=Math.max(a.rev||0,b.rev||0);
   return out; }
 function commit(){ stampChanges(); if(lastSnap!==null){ undoStack.push(lastSnap); if(undoStack.length>60) undoStack.shift(); redoStack.length=0; }
@@ -463,7 +474,8 @@ function addItem({text='',parentId=null,sectionIds,x,y}={}){
   }
   state.items.push(it); commit(); renderAll(); selectNode(it.id); return it;
 }
-function setStatus(id){ const it=itemById(id); if(!it) return; const k=STATE_CYCLE[(STATE_CYCLE.indexOf(it.status)+1)%STATE_CYCLE.length]; if(k==='doing'&&it.status!=='doing') it.doingTs=Date.now(); it.status=k; commit(); renderAll(); }
+function logAct(it,st){ state.activity=state.activity||[]; state.activity.push({ts:Date.now(),who:me?me.name:'?',id:it.id,text:it.text||'…',st}); if(state.activity.length>120) state.activity=state.activity.slice(-120); }
+function setStatus(id){ const it=itemById(id); if(!it) return; const k=STATE_CYCLE[(STATE_CYCLE.indexOf(it.status)+1)%STATE_CYCLE.length]; if(k==='doing'&&it.status!=='doing') it.doingTs=Date.now(); it.status=k; logAct(it,k); commit(); renderAll(); }
 function setText(id,t){ const it=itemById(id); if(!it) return; it.text=t.trim()||'Položka'; commit(); }
 function itemSecIds(it){ const a=it.sectionIds||(it.sectionId!=null?[it.sectionId]:[]); return a.filter(id=>sectionById(id)); }
 function setSecIds(it,arr){ it.sectionIds=arr; if('sectionId' in it) delete it.sectionId; }
@@ -587,7 +599,7 @@ function openNodeMenu(e,id){ const it=itemById(id); if(!it) return; const m=$('#
     add(ow?'🐝 Odznačit „mám ji“':'🐝 Mám tuhle včelu',()=>{ m.style.display='none'; toggleOwned(it.bee); it.status=ow?'todo':'done'; commit(); renderAll(); }); }
   if(childrenOf(id).length) add(it.col?'Rozbalit větev':'Sbalit větev (skrýt potomky)',()=>{ m.style.display='none'; it.col=!it.col; commit(); renderMap(); });
   hd('Stav');
-  for(const k of STATE_CYCLE){ const s=STATES[k]; const b=document.createElement('button'); b.innerHTML=`<span class="sw" style="background:${cssCol(s.color)}"></span>${s.lbl}${it.status===k?'  ✓':''}`; b.onclick=()=>{ if(k==='doing'&&it.status!=='doing') it.doingTs=Date.now(); it.status=k; commit(); renderAll(); m.style.display='none'; }; m.appendChild(b); }
+  for(const k of STATE_CYCLE){ const s=STATES[k]; const b=document.createElement('button'); b.innerHTML=`<span class="sw" style="background:${cssCol(s.color)}"></span>${s.lbl}${it.status===k?'  ✓':''}`; b.onclick=()=>{ if(k==='doing'&&it.status!=='doing') it.doingTs=Date.now(); it.status=k; logAct(it,k); commit(); renderAll(); m.style.display='none'; }; m.appendChild(b); }
   sep();
   add('Sekce…',()=>openSectionMenu(e,id));
   add('Přiřadit lidi…',()=>openAssignMenu(e,id));
@@ -1047,8 +1059,27 @@ $('#shareModal').addEventListener('pointerdown',e=>{ if(e.target.id==='shareModa
 $('#blogClose').onclick=()=>$('#blogModal').style.display='none';
 $('#blogModal').addEventListener('pointerdown',e=>{ if(e.target.id==='blogModal') $('#blogModal').style.display='none'; });
 
+/* ---------- focus bar ---------- */
+function timeAgo(ts){ const s=(Date.now()-ts)/1000; if(s<60) return 'teď'; if(s<3600) return 'před '+Math.floor(s/60)+' min'; if(s<86400) return 'před '+Math.floor(s/3600)+' h'; return 'před '+Math.floor(s/86400)+' d'; }
+function myCurrentTask(){ if(!me) return null;
+  const acts=(state.activity||[]).filter(a=>a.who===me.name&&a.st==='doing').reverse();
+  for(const a of acts){ const it=itemById(a.id); if(it&&it.status==='doing') return it; }
+  const mine=state.items.filter(i=>i.status==='doing'&&(i.assignees||[]).includes(me.name)).sort((a,b)=>(b.doingTs||0)-(a.doingTs||0));
+  return mine[0]||null; }
+function renderFocus(){ const bar=$('#focusBar'); if(!bar) return; const it=myCurrentTask(); const t=$('#focusTask');
+  if(it){ bar.classList.add('hasit'); t.textContent=(it.text||'…')+(it.doingTs?'  ('+timeAgo(it.doingTs)+')':''); t.onclick=()=>flyTo(itemById(it.id));
+    $('#focusDone').style.display=''; $('#focusDone').onclick=()=>{ const x=itemById(it.id); if(x){ x.status='done'; logAct(x,'done'); commit(); renderAll(); toast('✓ '+(x.text||'')); } }; }
+  else { bar.classList.remove('hasit'); t.textContent='nic nerozděláno — klikni na čtvereček úkolu → „Dělá se“'; t.onclick=null; $('#focusDone').style.display='none'; } }
+$('#focusHist').onclick=e=>{ const m=$('#popMenu'); m.innerHTML=''; const hd=document.createElement('div'); hd.className='mhd'; hd.textContent='Tvoje poslední aktivita'; m.appendChild(hd);
+  const acts=(state.activity||[]).filter(a=>a.who===(me&&me.name)).slice(-14).reverse();
+  if(!acts.length){ const d=document.createElement('div'); d.style.cssText='padding:8px 12px;font-size:12px;color:var(--muted)'; d.textContent='Zatím nic — měň stavy úkolů.'; m.appendChild(d); }
+  for(const a of acts){ const b=document.createElement('button'); const ic=a.st==='done'?'✓':a.st==='doing'?'▶':a.st==='stopped'?'×':'○';
+    b.innerHTML=ic+' '+escapeHtml(a.text)+' <span style="color:#9aa0a6;font-size:11px">· '+timeAgo(a.ts)+'</span>';
+    b.onclick=()=>{ const it=itemById(a.id); if(it) flyTo(it); m.style.display='none'; }; m.appendChild(b); }
+  showPop(m,e.target); };
+setInterval(()=>{ if(me) renderFocus(); },30000);
 /* ---------- render all ---------- */
-function renderAll(){ rebuildSectionSelect(); renderSecbar(); renderTasks(); renderMap(); if(detailId){ const it=itemById(detailId); if(it) $('#dTitle').textContent=it.text||'Položka'; else closeDetail(); } }
+function renderAll(){ rebuildSectionSelect(); renderSecbar(); renderTasks(); renderMap(); renderFocus(); if(detailId){ const it=itemById(detailId); if(it) $('#dTitle').textContent=it.text||'Položka'; else closeDetail(); } }
 function rebuildSectionSelect(){ const sel=$('#taskSection'); const cur=sel.value; sel.innerHTML=''; for(const s of state.sections){ const o=document.createElement('option'); o.value=s.id; o.textContent=`${s.icon} ${s.name}`; sel.appendChild(o); } if(cur&&sectionById(cur)) sel.value=cur; else if(activeSec) sel.value=activeSec; }
 
 /* ---------- wires ---------- */
