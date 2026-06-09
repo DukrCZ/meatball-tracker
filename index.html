@@ -522,7 +522,8 @@ function wireNode(el,it){
     const l=e.clientX-rect.left<th,r=rect.right-e.clientX<th,t=e.clientY-rect.top<th,b=rect.bottom-e.clientY<th;
     el.style.cursor=(l&&t)||(r&&b)?'nwse-resize':(r&&t)||(l&&b)?'nesw-resize':(l||r)?'ew-resize':(t||b)?'ns-resize':'grab'; });
   el.addEventListener('contextmenu',e=>{ e.preventDefault(); selectNode(it.id); renderTasks(); openNodeMenu(e,it.id); });
-  txt.addEventListener('dblclick',()=>startEdit(it));
+  txt.addEventListener('dblclick',e=>{ e.stopPropagation(); startEdit(it); });
+  el.addEventListener('dblclick',e=>{ if(e.target.closest('.ntxt')) return; if(['nthumb','nmore','nport','nclose','nadd','nst'].some(c=>e.target.classList.contains(c))) return; openDetail(it.id); });
   txt.addEventListener('blur',()=>{ txt.setAttribute('contenteditable','false'); setText(it.id,txt.textContent); txt.textContent=it.text; renderTasks(); });
   txt.addEventListener('keydown',e=>{ if(e.key==='Enter'){e.preventDefault();txt.blur();} if(e.key==='Escape'){txt.textContent=it.text;txt.blur();} e.stopPropagation(); });
   el.querySelector('.nclose').onclick=()=>deleteItem(it.id);
