@@ -533,6 +533,7 @@ function openNodeMenu(e,id){ const it=itemById(id); if(!it) return; const m=$('#
   add('Přejmenovat',()=>{ m.style.display='none'; const it2=itemById(id); if(it2){ selectNode(id); startEdit(it2); } });
   add('Přidat pod-položku (potomek →)',()=>{ m.style.display='none'; const c=addItem({parentId:id}); editOnMap(c.id); });
   add('Přidat rodiče (← vstup)',()=>{ m.style.display='none'; addParentItem(id); });
+  add('Šablona na tuhle položku…',()=>{ m.style.display='none'; openTemplateMenu(e); });
   add('Vygenerovat rodokmen (strom)…',()=>{ m.style.display='none'; const lv=parseInt(prompt('Kolik pater rodokmenu nad touhle položkou? (2–6)\n4 = jako ta hra','4'),10); if(lv) generateBreedingTree(id,lv); });
   add('Materiál & poznámky',()=>{ m.style.display='none'; openDetail(id); });
   hd('Stav');
@@ -560,7 +561,7 @@ function renderMap(){
   world.innerHTML=''; fieldCanvas=document.createElement('canvas'); fieldCanvas.className='field'; world.appendChild(fieldCanvas);
   for(const it of state.items){
     const st=STATES[it.status]||STATES.todo, stc=cssCol(st.color);
-    const el=document.createElement('div'); el.className='node '+it.status+(selId===it.id?' sel':'')+(selSet.has(it.id)?' selm':''); if(focusSec&&!itemSecIds(it).includes(focusSec)) el.classList.add('dim');
+    const el=document.createElement('div'); el.className='node '+it.status+(selId===it.id?' sel':'')+(selSet.has(it.id)?' selm':'');
     el.style.left=it.x+'px'; el.style.top=it.y+'px'; el.style.borderColor=itemColorHex(it); el.dataset.id=it.id; if(it.w){ el.style.width=it.w+'px'; el.style.maxWidth='none'; } if(it.h){ el.style.minHeight=it.h+'px'; }
     let imgHtml=''; const imgs=(it.images||[]).map(imgObj);
     if(imgs.length===1){ imgHtml=`<img class="nthumb cover" data-i="0" src="${imgs[0].src}">`; }
@@ -725,10 +726,10 @@ function layeredLayout(vertical){ if(vertical===undefined) vertical=(state.layou
 
 /* ---------- šablony ---------- */
 const TEMPLATES={
-  'Brainstorm':{t:'Téma',c:['Nápad 1','Nápad 2','Nápad 3','Nápad 4']},
-  'Cíl → kroky':{t:'Cíl',c:['Krok 1','Krok 2','Krok 3']},
+  'Brainstorm':{t:'Téma',gen:'Nápad',def:4},
+  'Cíl → kroky':{t:'Cíl',gen:'Krok',def:3},
+  'Postup / checklist':{t:'Postup',gen:'Krok',def:4},
   'Projekt':{t:'Projekt',c:['Nápady','Úkoly','Blokery']},
-  'Postup / checklist':{t:'Postup',c:['1. …','2. …','3. …','4. …']},
   'Denní plán':{t:'Den',c:['Ráno','Dopoledne','Odpoledne','Večer']},
   'Rozhodnutí':{t:'Rozhodnutí',c:[{t:'Možnost A',c:['+ pro','− proti']},{t:'Možnost B',c:['+ pro','− proti']}]},
   'Pro / proti':{t:'Téma',c:[{t:'Pro',c:['+ …','+ …']},{t:'Proti',c:['− …','− …']}]},
@@ -736,8 +737,16 @@ const TEMPLATES={
 const tplNode=n=>typeof n==='string'?{t:n,c:[]}:{t:n.t,c:n.c||[]};
 function addTpl(node,parentId,x,y){ node=tplNode(node); const it={id:uid(),text:node.t,status:'todo',assignees:[],parentId:parentId||null,sectionIds:activeSec?[activeSec]:[],x,y,images:[]};
   state.items.push(it); const n=node.c.length, ky=y-((n-1)*96)/2; node.c.forEach((k,i)=>addTpl(k,it.id,x+215,ky+i*96)); return it; }
-function insertTemplate(name){ const spec=TEMPLATES[name]; if(!spec) return; const cx=(mapwrap.clientWidth/2-view.x)/view.k, cy=(mapwrap.clientHeight/2-view.y)/view.k;
-  const root=addTpl(spec,null,cx,cy); commit(); renderAll(); selectNode(root.id); }
+function insertTemplate(name){ const spec=TEMPLATES[name]; if(!spec) return;
+  let children=spec.c;
+  if(spec.gen){ const n=parseInt(prompt(`Kolik (${spec.gen.toLowerCase()}ů)?`, String(spec.def)),10); if(!n||n<1) return; children=Array.from({length:Math.min(n,30)},(_,i)=>`${spec.gen} ${i+1}`); }
+  const target = selId && itemById(selId);
+  if(target){ // šablona se aplikuje NA vybranou bunku – děti se pověsí pod ni
+    const n=children.length, ky=target.y-((n-1)*96)/2;
+    children.forEach((k,i)=>addTpl(k,target.id,target.x+215,ky+i*96));
+    commit(); renderAll(); selectNode(target.id); return; }
+  const cx=(mapwrap.clientWidth/2-view.x)/view.k, cy=(mapwrap.clientHeight/2-view.y)/view.k;
+  const root=addTpl({t:spec.t,c:children},null,cx,cy); commit(); renderAll(); selectNode(root.id); }
 function insertBreedingTree(levels){ levels=Math.max(2,Math.min(6,levels||4));
   const cx=(mapwrap.clientWidth/2-view.x)/view.k, cyTop=(mapwrap.clientHeight/2-view.y)/view.k - levels*70;
   const spacing=112, vgap=120; const rows=[];
@@ -900,7 +909,7 @@ addEventListener('keydown',e=>{ const ae=document.activeElement; if(ae&&ae.getAt
 function renderSecbar(){ const bar=$('#secbar'); bar.innerHTML='';
   for(const s of state.sections){ const chip=document.createElement('div'); chip.className='chip'+(focusSec===s.id?' focus':'');
     chip.innerHTML=`<span class="cdot" style="background:${s.color}"></span><span>${s.icon} ${s.name}</span><span class="cedit">✎</span>`;
-    chip.onclick=ev=>{ if(ev.target.classList.contains('cedit')){ openSecEdit(ev,s); return; } if(selSet.size>1){ applyToSel(it=>{ const a=itemSecIds(it); if(!a.includes(s.id)) setSecIds(it,[...a,s.id]); }); activeSec=s.id; return; } if(selId){ toggleSection(selId,s.id); activeSec=s.id; return; } activeSec=s.id; focusSec=focusSec===s.id?null:s.id; renderSecbar(); renderMap(); if(focusSec) fit(s.id); };
+    chip.onclick=ev=>{ if(ev.target.classList.contains('cedit')){ openSecEdit(ev,s); return; } if(selSet.size>1){ applyToSel(it=>{ const a=itemSecIds(it); if(!a.includes(s.id)) setSecIds(it,[...a,s.id]); }); activeSec=s.id; return; } if(selId){ toggleSection(selId,s.id); activeSec=s.id; return; } activeSec=s.id; renderSecbar(); fit(s.id); };
     bar.appendChild(chip); }
   const add=document.createElement('div'); add.className='chip addsec'; add.textContent='＋ sekce';
   add.onclick=()=>{ const n=prompt('Název sekce:'); if(!n) return; const s={id:uid(),name:n.trim(),icon:'•',color:PALETTE[state.sections.length%PALETTE.length]}; state.sections.push(s); activeSec=s.id; commit(); renderAll(); }; bar.appendChild(add); }
