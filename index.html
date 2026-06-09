@@ -194,6 +194,8 @@
           <button id="btnFit" title="Vycentrovat">Fit</button>
           <button id="btnTidy" title="Auto-rozložení (vrstvy, min. křížení)">Rozložit</button>
           <button id="btnTpl" title="Vložit šablonu myšlenky">Šablona</button>
+          <button id="btnUndo" title="Zpět (Ctrl+Z)">↶</button>
+          <button id="btnRedo" title="Vpřed (Ctrl+Y)">↷</button>
           <button id="btnZoomIn">＋</button>
           <button id="btnZoomOut">－</button>
         </div>
@@ -323,8 +325,12 @@ let view={x:0,y:0,k:1}; const collapsed=new Set(); let fieldCanvas=null;
 const $=s=>document.querySelector(s);
 const world=$('#world'), edgesSvg=$('#edges'), mapwrap=$('#mapwrap');
 
-function commit(){ state.rev=(state.rev||0)+1; sync.save(structuredClone(state)); }
-function onRemote(s){ if(!s) return; if(JSON.stringify(s)===JSON.stringify(state)) return; state=s; renderAll(); }
+let undoStack=[], redoStack=[], lastSnap=null;
+function commit(){ if(lastSnap!==null){ undoStack.push(lastSnap); if(undoStack.length>60) undoStack.shift(); redoStack.length=0; }
+  state.rev=(state.rev||0)+1; lastSnap=JSON.stringify(state); sync.save(structuredClone(state)); }
+function undo(){ if(!undoStack.length) return; redoStack.push(JSON.stringify(state)); const p=undoStack.pop(); state=JSON.parse(p); lastSnap=p; selId=null; state.rev=(state.rev||0)+1; sync.save(structuredClone(state)); renderAll(); }
+function redo(){ if(!redoStack.length) return; undoStack.push(JSON.stringify(state)); const n=redoStack.pop(); state=JSON.parse(n); lastSnap=n; selId=null; state.rev=(state.rev||0)+1; sync.save(structuredClone(state)); renderAll(); }
+function onRemote(s){ if(!s) return; if(JSON.stringify(s)===JSON.stringify(state)) return; state=s; lastSnap=JSON.stringify(s); renderAll(); }
 
 const sectionById=id=>state.sections.find(s=>s.id===id);
 const itemById=id=>state.items.find(i=>i.id===id);
@@ -634,14 +640,14 @@ function insertTemplate(name){ const spec=TEMPLATES[name]; if(!spec) return; con
   const root=addTpl(spec,null,cx,cy); commit(); renderAll(); selectNode(root.id); }
 function insertBreedingTree(levels){ levels=Math.max(2,Math.min(6,levels||4));
   const cx=(mapwrap.clientWidth/2-view.x)/view.k, cyTop=(mapwrap.clientHeight/2-view.y)/view.k - levels*70;
-  const spacing=145, vgap=130; const rows=[];
+  const spacing=112, vgap=120; const rows=[];
   for(let L=0;L<levels;L++){ rows[L]=[]; const count=2**L; for(let i=0;i<count;i++) rows[L].push({ id:uid(), text:'?', status:'todo', assignees:[], parentId:null, links:[], sectionIds:activeSec?[activeSec]:[], x:0, y:cyTop+L*vgap, images:[] }); }
   const leaves=rows[levels-1]; const startX=cx-(leaves.length-1)*spacing/2; leaves.forEach((n,i)=>n.x=startX+i*spacing);
   for(let L=levels-2;L>=0;L--) rows[L].forEach((n,i)=>{ const a=rows[L+1][2*i], b=rows[L+1][2*i+1]; n.x=(a.x+b.x)/2; });
   for(let L=0;L<levels-1;L++) rows[L].forEach((n,i)=>{ const a=rows[L+1][2*i], b=rows[L+1][2*i+1]; n.parentId=a.id; n.links=[b.id]; });
   rows.flat().forEach(n=>state.items.push(n)); commit(); renderAll(); selectNode(rows[0][0].id); fit(); }
 function generateBreedingTree(rootId,levels){ const root=itemById(rootId); if(!root) return; levels=Math.max(2,Math.min(6,levels||4));
-  const spacing=150, vgap=130; const rows=[[root]];
+  const spacing=112, vgap=120; const rows=[[root]];
   for(let L=1;L<levels;L++){ rows[L]=[]; for(let i=0;i<2**L;i++) rows[L].push({ id:uid(), text:'?', status:'todo', assignees:[], parentId:null, links:[], sectionIds:[...itemSecIds(root)], x:0, y:root.y+L*vgap, images:[] }); }
   const leaves=rows[levels-1]; const startX=root.x-(leaves.length-1)*spacing/2; leaves.forEach((n,i)=>n.x=startX+i*spacing);
   for(let L=levels-2;L>=1;L--) rows[L].forEach((n,i)=>{ n.x=(rows[L+1][2*i].x+rows[L+1][2*i+1].x)/2; });
@@ -783,6 +789,9 @@ function rebuildSectionSelect(){ const sel=$('#taskSection'); const cur=sel.valu
 /* ---------- wires ---------- */
 $('#taskInput').addEventListener('keydown',e=>{ if(e.key==='Enter'&&e.target.value.trim()){ const sv=$('#taskSection').value; addItem({text:e.target.value.trim(),sectionIds:sv?[sv]:[]}); e.target.value=''; } });
 $('#btnFit').onclick=()=>fit(); $('#btnTidy').onclick=layeredLayout; $('#btnTpl').onclick=openTemplateMenu;
+$('#btnUndo').onclick=undo; $('#btnRedo').onclick=redo;
+addEventListener('keydown',e=>{ if(!(e.ctrlKey||e.metaKey)||e.altKey) return; const ae=document.activeElement; if(ae&&(ae.tagName==='INPUT'||ae.tagName==='TEXTAREA'||ae.getAttribute&&ae.getAttribute('contenteditable')==='true')) return;
+  const k=e.key.toLowerCase(); if(k==='z'&&!e.shiftKey){ e.preventDefault(); undo(); } else if(k==='y'||(k==='z'&&e.shiftKey)){ e.preventDefault(); redo(); } });
 $('#btnZoomIn').onclick=()=>{ view.k=Math.min(2.5,view.k*1.15); applyView(); }; $('#btnZoomOut').onclick=()=>{ view.k=Math.max(0.22,view.k/1.15); applyView(); };
 $('#btnShare').onclick=openShare;
 $('#sortBtns').querySelectorAll('button').forEach(b=>b.onclick=()=>{ sortMode=b.dataset.sort; $('#sortBtns').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b)); renderTasks(); });
