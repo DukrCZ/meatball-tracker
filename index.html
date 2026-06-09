@@ -76,7 +76,7 @@
 
   .mapwrap { flex:1; position:relative; overflow:hidden; background:var(--canvas); background-image:radial-gradient(circle,var(--grid) 1px,transparent 1px); background-size:26px 26px; }
   #world { position:absolute; left:0; top:0; transform-origin:0 0; will-change:transform; }
-  canvas.field { position:absolute; pointer-events:none; z-index:0; mix-blend-mode:screen; }
+  canvas.field { position:absolute; pointer-events:none; z-index:0; mix-blend-mode:lighten; }
   svg.edges { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; z-index:1; }
   .node { position:absolute; min-width:84px; max-width:230px; padding:9px 12px; background:var(--panel); color:var(--text); border:2px solid var(--accent); border-radius:12px; box-shadow:var(--shadow); font-size:14px; cursor:grab; user-select:none; transform:translate(-50%,-50%); z-index:2; transition:opacity .15s; display:flex; flex-direction:column; justify-content:center; }
   .node.sel { outline:2px solid var(--accent); outline-offset:2px; } .node.dim { opacity:.18; }
@@ -508,11 +508,14 @@ function renderField(){
   const pts=its.map(i=>({sx:(i.x-minx)/SCALE,sy:(i.y-miny)/SCALE,rgb:hex2rgb(itemColorHex(i)),ryb:itemRYB(i)}));
   const Rs=R/SCALE, denom=2*Rs*Rs; const ctx=fieldCanvas.getContext('2d'); const img=ctx.createImageData(cw,ch); const d=img.data;
   for(let j=0;j<ch;j++) for(let i=0;i<cw;i++){
-    let tot=0,ar=0,ay=0,ab=0,domW=0,secW=0,domRGB=null;
-    for(const p of pts){ const dx=i-p.sx,dy=j-p.sy; const w=Math.exp(-(dx*dx+dy*dy)/denom); if(w<0.002) continue; tot+=w; ar+=w*p.ryb[0];ay+=w*p.ryb[1];ab+=w*p.ryb[2]; if(w>domW){ secW=domW; domW=w; domRGB=p.rgb; } else if(w>secW) secW=w; }
+    let tot=0,domW=0,secW=0,domRGB=null,domRYB=null,secRYB=null;
+    for(const p of pts){ const dx=i-p.sx,dy=j-p.sy; const w=Math.exp(-(dx*dx+dy*dy)/denom); if(w<0.002) continue; tot+=w;
+      if(w>domW){ secW=domW; secRYB=domRYB; domW=w; domRYB=p.ryb; domRGB=p.rgb; } else if(w>secW){ secW=w; secRYB=p.ryb; } }
     if(tot<0.012){ d[(j*cw+i)*4+3]=0; continue; }
-    const mixed=ryb2rgb(ar/tot,ay/tot,ab/tot), dom=domRGB||[.6,.6,.6]; const t=Math.min(1,(secW/(domW+secW||1))*2);
-    const r=dom[0]+(mixed[0]-dom[0])*t,g=dom[1]+(mixed[1]-dom[1])*t,b=dom[2]+(mixed[2]-dom[2])*t;
+    const dom=domRGB||[.6,.6,.6]; let r,g,b;
+    if(secRYB){ const f=Math.min(0.5,secW/(domW+secW)); const m=ryb2rgb(domRYB[0]+(secRYB[0]-domRYB[0])*f,domRYB[1]+(secRYB[1]-domRYB[1])*f,domRYB[2]+(secRYB[2]-domRYB[2])*f); const t=Math.min(1,f*2);
+      r=dom[0]+(m[0]-dom[0])*t; g=dom[1]+(m[1]-dom[1])*t; b=dom[2]+(m[2]-dom[2])*t; }
+    else { r=dom[0]; g=dom[1]; b=dom[2]; }
     const fade=Math.min(1,Math.max(0,(tot-0.015)/0.1)); const a=Math.min(0.46,(1-Math.exp(-tot*1.1))*0.5)*fade;
     const o=(j*cw+i)*4; d[o]=r*255|0; d[o+1]=g*255|0; d[o+2]=b*255|0; d[o+3]=a*255|0;
   }
@@ -578,6 +581,7 @@ function smoothPath(pts){ if(pts.length<2) return ''; let d=`M${pts[0].x.toFixed
     d+=` C${c1x.toFixed(1)},${c1y.toFixed(1)} ${c2x.toFixed(1)},${c2y.toFixed(1)} ${p2.x.toFixed(1)},${p2.y.toFixed(1)}`; } return d; }
 function renderEdges(){
   const Wd=mapwrap.clientWidth,Hd=mapwrap.clientHeight; edgesSvg.setAttribute('viewBox',`0 0 ${Wd} ${Hd}`); const ts=p=>({x:p.x*view.k+view.x,y:p.y*view.k+view.y});
+  const dir=state.layoutDir;
   let reach=null; // potomci vybraného uzlu (kam vedou šipky)
   if(selId){ reach=new Set([selId]); const st=[selId]; while(st.length){ const cur=st.pop(); for(const it of state.items){ if(!reach.has(it.id) && [it.parentId,...(it.links||[])].includes(cur)){ reach.add(it.id); st.push(it.id); } } } }
   let html=`<defs><marker id="ar" markerWidth="9" markerHeight="9" refX="6.5" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#5d626b"/></marker><marker id="arL" markerWidth="10" markerHeight="10" refX="6.5" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#8ab4f8"/></marker></defs>`;
@@ -586,7 +590,8 @@ function renderEdges(){
     const wp=state.waypoints&&state.waypoints[a.id+'|'+b.id];
     if(wp&&wp.length){ const pts=[{x:a.x+sa.w/2,y:a.y},...wp,{x:b.x-sb.w/2,y:b.y}].map(ts); return `<path d="${smoothPath(pts)}" ${attrs}/>`; }
     const dxa=b.x-a.x, dya=b.y-a.y; let p1,p2,c1,c2;
-    if(Math.abs(dxa)>=Math.abs(dya)){ const sg=dxa>=0?1:-1, o=Math.max(28,Math.abs(dxa)*0.42);
+    const horiz = dir==='right' ? true : dir==='down' ? false : (Math.abs(dxa) > Math.abs(dya)*1.5);
+    if(horiz){ const sg=dxa>=0?1:-1, o=Math.max(28,Math.abs(dxa)*0.42);
       p1=ts({x:a.x+sg*sa.w/2,y:a.y}); p2=ts({x:b.x-sg*sb.w/2,y:b.y}); c1=ts({x:a.x+sg*(sa.w/2+o),y:a.y}); c2=ts({x:b.x-sg*(sb.w/2+o),y:b.y}); }
     else { const sg=dya>=0?1:-1, o=Math.max(28,Math.abs(dya)*0.42);
       p1=ts({x:a.x,y:a.y+sg*sa.h/2}); p2=ts({x:b.x,y:b.y-sg*sb.h/2}); c1=ts({x:a.x,y:a.y+sg*(sa.h/2+o)}); c2=ts({x:b.x,y:b.y-sg*(sb.h/2+o)}); }
@@ -635,7 +640,7 @@ function layeredLayout(){
   const X=id=>bx+N[id].layer*COLW;
   items.forEach(it=>{ it.x=X(it.id); it.y=by+Y[it.id]; });
   state.waypoints={}; for(const e of chains) if(e.mids.length) state.waypoints[e.key]=e.mids.map(id=>({x:X(id),y:by+Y[id]}));
-  commit(); renderAll(); fit(); }
+  state.layoutDir='right'; commit(); renderAll(); fit(); }
 
 /* ---------- šablony ---------- */
 const TEMPLATES={
@@ -659,7 +664,7 @@ function insertBreedingTree(levels){ levels=Math.max(2,Math.min(6,levels||4));
   const leaves=rows[levels-1]; const startX=cx-(leaves.length-1)*spacing/2; leaves.forEach((n,i)=>n.x=startX+i*spacing);
   for(let L=levels-2;L>=0;L--) rows[L].forEach((n,i)=>{ const a=rows[L+1][2*i], b=rows[L+1][2*i+1]; n.x=(a.x+b.x)/2; });
   for(let L=0;L<levels-1;L++) rows[L].forEach((n,i)=>{ const a=rows[L+1][2*i], b=rows[L+1][2*i+1]; n.parentId=a.id; n.links=[b.id]; });
-  rows.flat().forEach(n=>state.items.push(n)); commit(); renderAll(); selectNode(rows[0][0].id); fit(); }
+  rows.flat().forEach(n=>state.items.push(n)); state.layoutDir='down'; commit(); renderAll(); selectNode(rows[0][0].id); fit(); }
 function generateBreedingTree(rootId,levels){ const root=itemById(rootId); if(!root) return; levels=Math.max(2,Math.min(6,levels||4));
   const spacing=112, vgap=120; const rows=[[root]];
   for(let L=1;L<levels;L++){ rows[L]=[]; for(let i=0;i<2**L;i++) rows[L].push({ id:uid(), text:'?', status:'todo', assignees:[], parentId:null, links:[], sectionIds:[...itemSecIds(root)], x:0, y:root.y+L*vgap, images:[] }); }
@@ -668,7 +673,7 @@ function generateBreedingTree(rootId,levels){ const root=itemById(rootId); if(!r
   for(let L=0;L<levels-1;L++) rows[L].forEach((n,i)=>{ const a=rows[L+1][2*i], b=rows[L+1][2*i+1];
     if(L===0){ n.links=n.links||[]; if(!n.parentId) n.parentId=a.id; else n.links.push(a.id); n.links.push(b.id); }
     else { n.parentId=a.id; n.links=[b.id]; } });
-  rows.slice(1).flat().forEach(n=>state.items.push(n)); commit(); renderAll(); selectNode(root.id); fit(); }
+  rows.slice(1).flat().forEach(n=>state.items.push(n)); state.layoutDir='down'; commit(); renderAll(); selectNode(root.id); fit(); }
 function openTemplateMenu(e){ const m=$('#popMenu'); m.innerHTML=''; const hd=document.createElement('div'); hd.className='mhd'; hd.textContent='Vložit šablonu'; m.appendChild(hd);
   for(const name of Object.keys(TEMPLATES)){ const b=document.createElement('button'); b.textContent=name; b.onclick=()=>{ insertTemplate(name); m.style.display='none'; }; m.appendChild(b); }
   const sp=document.createElement('div'); sp.className='msep'; m.appendChild(sp);
