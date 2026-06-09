@@ -286,12 +286,22 @@ create policy "open" on boards
     </div>
   </div>
   <div class="modal" id="dbModal" style="display:none">
-    <div class="card" style="width:480px; max-height:84vh; display:flex; flex-direction:column;">
+    <div class="card" style="width:540px; max-height:86vh; display:flex; flex-direction:column;">
       <h1>Strom z databáze 🐝</h1>
-      <p>Najdi cílovou včelu → postaví se celej rodokmen z receptů (MeatballCraft + Forestry + Magic + Extra/Career Bees).</p>
-      <input id="dbSearch" placeholder="hledej včelu (např. EMBee)…">
-      <div id="dbList" style="overflow:auto; flex:1; margin-top:10px;"></div>
-      <div style="display:flex; margin-top:10px;"><button class="btn" id="dbCancel" style="margin-left:auto;">Zavřít</button></div>
+      <div id="dbBrowse" style="display:flex; flex-direction:column; min-height:0; flex:1;">
+        <p style="margin:0 0 8px">Najdi cílovou včelu — ukáže se náhled, pak vložíš na mapu.</p>
+        <input id="dbSearch" placeholder="hledej včelu (např. EMBee)…">
+        <div id="dbList" style="overflow:auto; flex:1; margin-top:10px;"></div>
+      </div>
+      <div id="dbPreview" style="display:none; flex-direction:column; min-height:0; flex:1;">
+        <div id="dbPrevInfo" style="font-size:12.5px; color:var(--muted); margin-bottom:8px;"></div>
+        <div style="flex:1; overflow:auto; background:var(--canvas); border:1px solid var(--line); border-radius:10px; padding:6px;"><svg id="dbPrevSvg"></svg></div>
+      </div>
+      <div style="display:flex; gap:8px; margin-top:12px;">
+        <button class="btn primary" id="dbInsert" style="display:none">Vložit na mapu</button>
+        <button class="btn" id="dbBack" style="display:none">← Zpět</button>
+        <button class="btn" id="dbCancel" style="margin-left:auto;">Zavřít</button>
+      </div>
     </div>
   </div>
   <div class="modal" id="joinModal">
@@ -668,7 +678,7 @@ function fit(filterSec){ let its=state.items; if(filterSec) its=its.filter(i=>it
   const xs=its.map(i=>i.x),ys=its.map(i=>i.y); const minx=Math.min(...xs)-170,maxx=Math.max(...xs)+170,miny=Math.min(...ys)-120,maxy=Math.max(...ys)+120;
   const w=maxx-minx,h=maxy-miny,k=Math.min(1.4,Math.min(mapwrap.clientWidth/w,mapwrap.clientHeight/h)); view.k=k; view.x=mapwrap.clientWidth/2-((minx+maxx)/2)*k; view.y=mapwrap.clientHeight/2-((miny+maxy)/2)*k; applyView(); }
 // Sugiyama: vrstvy(longest-path) → dummy uzly pro dlouhé hrany → median sweep → barycentr souřadnice
-function layeredLayout(){
+function layeredLayout(vertical){ if(vertical===undefined) vertical=(state.layoutDir==='down');
   const items=state.items; if(!items.length) return;
   const par=it=>[it.parentId,...(it.links||[])].filter(p=>p&&itemById(p));
   // 1) vrstvy
@@ -692,13 +702,13 @@ function layeredLayout(){
     for(const l of seq){ const L=layers[l]; L.forEach(n=>{ const nb=(adj[n.id]||[]).filter(id=>N[id].layer===(down?l-1:l+1)); n._m=median(nb.map(id=>pos[id])); if(n._m<0) n._m=pos[n.id]; });
       L.sort((a,b)=>(a._m-b._m)||(pos[a.id]-pos[b.id])); L.forEach((n,i)=>pos[n.id]=i); } }
   // 4) souřadnice
-  const COLW=200, bx=120, by=120, REAL=82, DUM=30; const Y={}; layers.forEach(L=>{ let y=0; L.forEach(n=>{ Y[n.id]=y; y+=(n.real?REAL:DUM); }); });
+  const COLW=200, ROWV=120, bx=120, by=120, REAL=vertical?122:82, DUM=vertical?40:30; const Y={}; layers.forEach(L=>{ let y=0; L.forEach(n=>{ Y[n.id]=y; y+=(n.real?REAL:DUM); }); });
   for(let r=0;r<20;r++){ for(const L of layers){ L.forEach(n=>{ const nb=adj[n.id]||[]; if(nb.length) Y[n.id]=nb.reduce((a,id)=>a+Y[id],0)/nb.length; });
     L.sort((a,b)=>pos[a.id]-pos[b.id]); for(let i=1;i<L.length;i++){ const gap=(L[i].real&&L[i-1].real)?REAL:DUM; if(Y[L[i].id]<Y[L[i-1].id]+gap) Y[L[i].id]=Y[L[i-1].id]+gap; } } }
-  const X=id=>bx+N[id].layer*COLW;
-  items.forEach(it=>{ it.x=X(it.id); it.y=by+Y[it.id]; });
-  state.waypoints={}; for(const e of chains) if(e.mids.length) state.waypoints[e.key]=e.mids.map(id=>({x:X(id),y:by+Y[id]}));
-  state.layoutDir='right'; commit(); renderAll(); fit(); }
+  const PX=id=>vertical?(bx+Y[id]):(bx+N[id].layer*COLW), PY=id=>vertical?(by+N[id].layer*ROWV):(by+Y[id]);
+  items.forEach(it=>{ it.x=PX(it.id); it.y=PY(it.id); });
+  state.waypoints={}; for(const e of chains) if(e.mids.length) state.waypoints[e.key]=e.mids.map(id=>({x:PX(id),y:PY(id)}));
+  state.layoutDir=vertical?'down':'right'; commit(); renderAll(); fit(); }
 
 /* ---------- šablony ---------- */
 const TEMPLATES={
@@ -742,7 +752,7 @@ function buildTreeFromText(text){ const lines=text.split('\n').filter(l=>l.trim(
     const parentId=depth>0?(stack[depth-1]||null):null;
     const it={ id:uid(), text:t, status:'todo', assignees:[], parentId:parentId, links:[], sectionIds:activeSec?[activeSec]:[], x:cx, y:cy, images:[] };
     state.items.push(it); stack[depth]=it.id; stack.length=depth+1; if(depth===0&&!firstRoot) firstRoot=it.id; }
-  state.layoutDir='down'; if(firstRoot){ tidyTreeDown(firstRoot); selectNode(firstRoot); } else { commit(); renderAll(); fit(); } }
+  state.layoutDir='down'; if(firstRoot){ layeredLayout(true); selectNode(firstRoot); } else { commit(); renderAll(); fit(); } }
 function openTemplateMenu(e){ const m=$('#popMenu'); m.innerHTML=''; const hd=document.createElement('div'); hd.className='mhd'; hd.textContent='Vložit šablonu'; m.appendChild(hd);
   for(const name of Object.keys(TEMPLATES)){ const b=document.createElement('button'); b.textContent=name; b.onclick=()=>{ insertTemplate(name); m.style.display='none'; }; m.appendChild(b); }
   const sp=document.createElement('div'); sp.className='msep'; m.appendChild(sp);
@@ -766,7 +776,7 @@ function renderTreeForm(){ const box=$('#treeForm'); box.innerHTML=''; (function
 let beeDB=null;
 async function loadBeeDB(){ if(beeDB) return beeDB; const r=await fetch('beedb.json?v=1'); beeDB=await r.json(); return beeDB; }
 function beeName(key){ return (beeDB&&beeDB.names[key.toLowerCase()])||key.split(':').pop()||key; }
-async function openDbModal(){ $('#dbModal').style.display='flex'; $('#dbSearch').value=''; $('#dbList').innerHTML='<div style="color:var(--muted);padding:10px">Načítám databázi…</div>';
+async function openDbModal(){ $('#dbModal').style.display='flex'; showDbBrowse(); $('#dbSearch').value=''; $('#dbList').innerHTML='<div style="color:var(--muted);padding:10px">Načítám databázi…</div>';
   try{ await loadBeeDB(); }catch(e){ $('#dbList').innerHTML='<div style="color:var(--st-stopped);padding:10px">Nepodařilo se načíst databázi.</div>'; return; }
   renderDbList(''); setTimeout(()=>$('#dbSearch').focus(),30); }
 function renderDbList(q){ const list=$('#dbList'); list.innerHTML=''; q=(q||'').trim().toLowerCase();
@@ -776,15 +786,32 @@ function renderDbList(q){ const list=$('#dbList'); list.innerHTML=''; q=(q||'').
   if(!entries.length){ list.innerHTML='<div style="color:var(--muted);padding:10px">Nic nenalezeno.</div>'; return; }
   for(const e of entries.slice(0,150)){ const r=beeDB.recipes[e.key]; const b=document.createElement('button'); b.className='dbrow';
     b.innerHTML=`<b>${escapeHtml(e.name)}</b><span class="dbmod">${e.mod}</span>${r?`<div class="dbrec">= ${escapeHtml(beeName(r[0]))} + ${escapeHtml(beeName(r[1]))}</div>`:''}`;
-    b.onclick=()=>{ buildFromDB(e.key); $('#dbModal').style.display='none'; }; list.appendChild(b); } }
+    b.onclick=()=>showDbPreview(e.key); list.appendChild(b); } }
+let dbCurrentKey=null;
+function showDbBrowse(){ $('#dbBrowse').style.display='flex'; $('#dbPreview').style.display='none'; $('#dbInsert').style.display='none'; $('#dbBack').style.display='none'; }
+function showDbPreview(key){ dbCurrentKey=key;
+  const nodes={}, seen=new Set();
+  (function rec(k){ if(seen.has(k)) return; seen.add(k); if(!nodes[k]) nodes[k]={key:k,name:beeName(k),children:[]}; const r=beeDB.recipes[k]; if(r) for(const p of r){ if(!nodes[p]) nodes[p]={key:p,name:beeName(p),children:[]}; nodes[k].children.push(p); rec(p); } })(key);
+  const pos={}; let cur=0; const sn=new Set();
+  (function place(k,d){ if(sn.has(k)) return; sn.add(k); const chs=nodes[k].children.filter(c=>!sn.has(c)); if(!chs.length){ pos[k]={x:cur++,d}; } else { chs.forEach(c=>place(c,d+1)); const xs=chs.map(c=>pos[c].x); pos[k]={x:(Math.min(...xs)+Math.max(...xs))/2,d}; } })(key,0);
+  const count=Object.keys(nodes).length, maxD=Math.max(0,...Object.values(pos).map(p=>p.d));
+  const NW=86,NH=22,STX=NW+12,STY=44,padX=12,padY=10; const X=k=>padX+pos[k].x*STX, YY=k=>padY+pos[k].d*STY;
+  const maxX=Math.max(0,...Object.values(pos).map(p=>p.x)); const W=padX*2+maxX*STX+NW, H=padY*2+maxD*STY+NH;
+  let svg=`<svg id="dbPrevSvg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`;
+  for(const k in nodes) for(const c of nodes[k].children){ const x1=X(k)+NW/2,y1=YY(k)+NH,x2=X(c)+NW/2,y2=YY(c); svg+=`<path d="M${x1},${y1} C${x1},${(y1+y2)/2} ${x2},${(y1+y2)/2} ${x2},${y2}" fill="none" stroke="#8ab4f8" stroke-width="1.4"/>`; }
+  for(const k in nodes){ const x=X(k),y=YY(k),root=k===key; svg+=`<rect x="${x}" y="${y}" width="${NW}" height="${NH}" rx="6" fill="${root?'#33405e':'#2a2c31'}" stroke="${root?'#8ab4f8':'#4b4f57'}"/><text x="${x+NW/2}" y="${y+15}" text-anchor="middle" font-size="10.5" fill="#e8eaed">${escapeHtml(nodes[k].name).slice(0,13)}</text>`; }
+  svg+='</svg>';
+  $('#dbPrevSvg').outerHTML=svg;
+  $('#dbPrevInfo').textContent=`${beeName(key)} — ${count} včel, ${maxD+1} pater. (1 hlavní recept/včela; alternativní cesty přidáš ručně.)`;
+  $('#dbBrowse').style.display='none'; $('#dbPreview').style.display='flex'; $('#dbInsert').style.display=''; $('#dbBack').style.display=''; }
 function buildFromDB(targetKey){ if(!beeDB) return; const cx=(mapwrap.clientWidth/2-view.x)/view.k, cy=(mapwrap.clientHeight/2-view.y)/view.k;
   const made={}; const node=key=>{ if(made[key]) return made[key]; const it={id:uid(),text:beeName(key),status:'todo',assignees:[],parentId:null,links:[],sectionIds:activeSec?[activeSec]:[],x:cx,y:cy,images:[]}; state.items.push(it); made[key]=it.id; return it.id; };
   const seen=new Set();
   (function rec(key){ if(seen.has(key)) return; seen.add(key); const id=node(key); const r=beeDB.recipes[key]; if(r){ for(const p of r){ const pid=node(p); const pit=itemById(pid); if(!pit.parentId) pit.parentId=id; else if(pit.parentId!==id&&!pit.links.includes(id)) pit.links.push(id); rec(p); } } })(targetKey);
-  state.layoutDir='down'; tidyTreeDown(made[targetKey]); selectNode(made[targetKey]); }
+  state.layoutDir='down'; layeredLayout(true); selectNode(made[targetKey]); }
 function createTreeFromForm(){ const cx=(mapwrap.clientWidth/2-view.x)/view.k, cy=(mapwrap.clientHeight/2-view.y)/view.k; let root=null;
   (function build(node,parentId){ const it={ id:uid(), text:(node.name||'').trim()||'?', status:'todo', assignees:[], parentId:parentId||null, links:[], sectionIds:activeSec?[activeSec]:[], x:cx, y:cy, images:[] }; state.items.push(it); if(!root) root=it; node.children.forEach(c=>build(c,it.id)); })(formTree,null);
-  state.layoutDir='down'; if(root){ tidyTreeDown(root.id); selectNode(root.id); } else { commit(); renderAll(); } }
+  state.layoutDir='down'; if(root){ layeredLayout(true); selectNode(root.id); } else { commit(); renderAll(); } }
 function openDilna(){ if(dilna) return; selSet.clear();
   dilna={ state, sync, undo:undoStack, redo:redoStack, last:lastSnap, view:{...view}, sel:selId };
   state={ sections:dilna.state.sections.map(s=>({...s})), items:[], members:dilna.state.members, rev:0, layoutDir:'down' };
@@ -942,6 +969,8 @@ $('#btnFit').onclick=()=>fit(); $('#btnTidy').onclick=layeredLayout; $('#btnTpl'
 $('#btnUndo').onclick=undo; $('#btnRedo').onclick=redo;
 $('#dilnaInsert').onclick=()=>dilnaExit(true); $('#dilnaCancel').onclick=()=>dilnaExit(false);
 $('#dbSearch').oninput=e=>renderDbList(e.target.value); $('#dbCancel').onclick=()=>$('#dbModal').style.display='none';
+$('#dbBack').onclick=showDbBrowse;
+$('#dbInsert').onclick=()=>{ if(dbCurrentKey){ buildFromDB(dbCurrentKey); } $('#dbModal').style.display='none'; };
 $('#dbModal').addEventListener('pointerdown',e=>{ if(e.target.id==='dbModal') $('#dbModal').style.display='none'; });
 $('#treeCreate').onclick=()=>{ createTreeFromForm(); $('#treeModal').style.display='none'; };
 $('#treeReset').onclick=()=>{ formTree={name:'',children:[]}; renderTreeForm(); };
