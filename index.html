@@ -92,6 +92,8 @@
   .node:hover .nport, .node.sel .nport { opacity:1; }
   .node .nadd { position:absolute; right:-12px; bottom:-12px; width:22px; height:22px; border-radius:50%; background:var(--accent); color:#fff; border:2px solid #fff; cursor:pointer; font-size:14px; line-height:18px; text-align:center; display:none; z-index:3; box-shadow:var(--shadow); }
   .node:hover .nadd, .node.sel .nadd { display:block; }
+  .node .naddl { position:absolute; left:-12px; bottom:-12px; width:22px; height:22px; border-radius:50%; background:#7a8088; color:#fff; border:2px solid #fff; cursor:pointer; font-size:14px; line-height:18px; text-align:center; display:none; z-index:3; box-shadow:var(--shadow); }
+  .node:hover .naddl, .node.sel .naddl { display:block; }
   .node .nresize { position:absolute; right:-6px; bottom:-6px; width:14px; height:14px; border-radius:3px; background:var(--panel); border:1px solid var(--line); cursor:nwse-resize; display:none; z-index:3; }
   .trow .tcol { cursor:pointer; }
   .node:hover .nresize, .node.sel .nresize { display:block; }
@@ -361,6 +363,12 @@ function reparent(childId,parentId){ if(childId===parentId||isAncestor(childId,p
 function addParentLink(childId,parentId){ if(childId===parentId) return; const c=itemById(childId); if(!c||isAncestor(childId,parentId)) return;
   if(!c.parentId){ c.parentId=parentId; } else if(c.parentId!==parentId){ c.links=c.links||[]; if(!c.links.includes(parentId)) c.links.push(parentId); }
   commit(); renderAll(); }
+function addParentItem(childId){ const c=itemById(childId); if(!c) return;
+  const pc=[c.parentId,...(c.links||[])].filter(p=>p&&itemById(p)).length;
+  const n={ id:uid(), text:'', status:'todo', assignees:[], parentId:null, links:[], sectionIds:[...itemSecIds(c)], x:c.x-((c.w||150)+95), y:c.y+(pc-0.5)*92, images:[] };
+  state.items.push(n);
+  if(!c.parentId) c.parentId=n.id; else { c.links=c.links||[]; if(!c.links.includes(n.id)) c.links.push(n.id); }
+  commit(); renderMap(); selectNode(n.id); startEdit(n); return n; }
 function deleteItem(id){ const it=itemById(id); if(!it) return; childrenOf(id).forEach(c=>c.parentId=it.parentId);
   state.items=state.items.filter(x=>x.id!==id); state.items.forEach(x=>{ if(x.links) x.links=x.links.filter(l=>l!==id); }); if(selId===id) selId=null; commit(); renderAll(); }
 
@@ -431,7 +439,8 @@ function openNodeMenu(e,id){ const it=itemById(id); if(!it) return; const m=$('#
   const hd=t=>{ const d=document.createElement('div'); d.className='mhd'; d.textContent=t; m.appendChild(d); };
   const sep=()=>{ const d=document.createElement('div'); d.className='msep'; m.appendChild(d); };
   add('Přejmenovat',()=>{ m.style.display='none'; const t=prompt('Text položky:',it.text); if(t!==null){ setText(id,t); renderAll(); } });
-  add('Přidat pod-položku',()=>{ m.style.display='none'; const c=addItem({parentId:id}); editOnMap(c.id); });
+  add('Přidat pod-položku (potomek →)',()=>{ m.style.display='none'; const c=addItem({parentId:id}); editOnMap(c.id); });
+  add('Přidat rodiče (← vstup)',()=>{ m.style.display='none'; addParentItem(id); });
   add('Materiál & poznámky',()=>{ m.style.display='none'; openDetail(id); });
   hd('Stav');
   for(const k of STATE_CYCLE){ const s=STATES[k]; const b=document.createElement('button'); b.innerHTML=`<span class="sw" style="background:${cssCol(s.color)}"></span>${s.lbl}${it.status===k?'  ✓':''}`; b.onclick=()=>{ if(k==='doing'&&it.status!=='doing') it.doingTs=Date.now(); it.status=k; commit(); renderAll(); m.style.display='none'; }; m.appendChild(b); }
@@ -464,7 +473,7 @@ function renderMap(){
     else if(imgs.length>1){ const cols=it.imgCols||(imgs.length<=4?2:3);
       imgHtml='<div class="nimgs" style="grid-template-columns:repeat('+cols+',1fr)">'+imgs.slice(0,9).map((im,k)=>`<img class="nthumb" data-i="${k}" src="${im.src}">`).join('')+(imgs.length>9?`<div class="nmore">+${imgs.length-9}</div>`:'')+'</div>'; }
     el.innerHTML=`<div class="nrow"><div class="nst" title="${st.lbl}" style="border-color:${stc};background:${it.status==='todo'?'transparent':stc}">${st.mark}</div><div class="ntxt" contenteditable="false"></div></div>${it.notes?'<div class="nnotes">'+escapeHtml(it.notes)+'</div>':''}${imgHtml}
-      <div class="nclose">×</div><div class="nport"></div><div class="nadd" title="Napojená pod-položka">＋</div>`;
+      <div class="nclose">×</div><div class="nport"></div><div class="nadd" title="Přidat potomek (výstup →)">＋</div><div class="naddl" title="Přidat rodiče (← vstup)">＋</div>`;
     const tx=el.querySelector('.ntxt'); tx.textContent=it.text||''; tx.title=it.text||'';
     wireNode(el,it); world.appendChild(el);
   }
@@ -500,7 +509,7 @@ function wireNode(el,it){
   el.querySelectorAll('.nthumb').forEach(im=>{ im.draggable=false; im.onclick=e=>{ e.stopPropagation(); lightbox(it.images,+im.dataset.i||0); }; });
   const nn=el.querySelector('.nnotes'); if(nn) nn.onclick=e=>{ e.stopPropagation(); openDetail(it.id); };
   el.addEventListener('pointerdown',e=>{
-    if(['nport','nclose','nadd','nst','nthumb','nmore','nnotes'].some(c=>e.target.classList.contains(c))) return;
+    if(['nport','nclose','nadd','naddl','nst','nthumb','nmore','nnotes'].some(c=>e.target.classList.contains(c))) return;
     if(txt.getAttribute('contenteditable')==='true') return;
     const rect=el.getBoundingClientRect(), th=11;
     const nl=e.clientX-rect.left<th, nr=rect.right-e.clientX<th, nt=e.clientY-rect.top<th, nb=rect.bottom-e.clientY<th;
@@ -528,6 +537,7 @@ function wireNode(el,it){
   txt.addEventListener('keydown',e=>{ if(e.key==='Enter'){e.preventDefault();txt.blur();} if(e.key==='Escape'){txt.textContent=it.text;txt.blur();} e.stopPropagation(); });
   el.querySelector('.nclose').onclick=()=>deleteItem(it.id);
   el.querySelector('.nadd').onclick=e=>{ e.stopPropagation(); const c=addItem({parentId:it.id}); editOnMap(c.id); };
+  el.querySelector('.naddl').onclick=e=>{ e.stopPropagation(); addParentItem(it.id); };
   el.querySelector('.nport').addEventListener('pointerdown',e=>{ e.stopPropagation(); linking={from:it.id}; mapwrap.setPointerCapture(e.pointerId);
     const move=ev=>{ linking.to=worldFromEvent(ev); renderEdges(); };
     const up=ev=>{ mapwrap.releasePointerCapture(e.pointerId); mapwrap.removeEventListener('pointermove',move); mapwrap.removeEventListener('pointerup',up);
