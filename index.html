@@ -113,6 +113,11 @@
   .searchbox { position:absolute; top:12px; left:50%; transform:translateX(-50%); z-index:8; display:none; align-items:center; gap:8px; background:#2e3137; border:1px solid #4b4f57; border-radius:10px; padding:7px 11px; box-shadow:0 6px 20px rgba(0,0,0,.5); }
   .searchbox input { background:none; border:none; outline:none; color:#eceef1; font-size:14px; width:220px; }
   .searchbox .scount { color:#9aa0a6; font-size:12px; white-space:nowrap; }
+  #toasts { position:fixed; right:16px; bottom:16px; z-index:500; display:flex; flex-direction:column; gap:8px; align-items:flex-end; }
+  .toast { background:#2e3137; border:1px solid #4b4f57; border-left:3px solid var(--accent); color:#eceef1; padding:9px 14px; border-radius:10px; font-size:13px; box-shadow:0 6px 20px rgba(0,0,0,.5); max-width:320px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; opacity:1; transition:opacity .3s, transform .3s; }
+  .toast.out { opacity:0; transform:translateX(14px); }
+  .node .ncol { font-size:10px; color:#0e2c17; background:#8ab4f8; border-radius:8px; padding:1px 6px; flex:none; cursor:pointer; font-weight:700; }
+  .node .nprog { cursor:pointer; }
   .node .ntxt { outline:none; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:20px; flex:1; } .node .ntxt[contenteditable="true"] { overflow:visible; text-overflow:clip; } .node.done .ntxt { text-decoration:line-through; color:var(--muted); }
   .node .nclose { position:absolute; top:-9px; right:-9px; width:20px; height:20px; border-radius:50%; background:var(--panel); border:1px solid var(--line); cursor:pointer; font-size:12px; line-height:18px; text-align:center; display:none; z-index:3; }
   .node:hover .nclose, .node.sel .nclose { display:block; }
@@ -370,11 +375,51 @@ const $=s=>document.querySelector(s);
 const world=$('#world'), edgesSvg=$('#edges'), mapwrap=$('#mapwrap');
 
 let undoStack=[], redoStack=[], lastSnap=null;
-function commit(){ if(lastSnap!==null){ undoStack.push(lastSnap); if(undoStack.length>60) undoStack.shift(); redoStack.length=0; }
+const sigIt=o=>{ const {mt,...r}=o; return JSON.stringify(r); };
+function stampChanges(){ const now=Date.now(); const prev=lastSnap?JSON.parse(lastSnap):null;
+  if(!prev){ state.items.forEach(it=>it.mt=it.mt||now); return; }
+  state.deleted=state.deleted||{};
+  const pi=new Map((prev.items||[]).map(i=>[i.id,sigIt(i)]));
+  for(const it of state.items){ const s0=pi.get(it.id); if(s0===undefined||s0!==sigIt(it)) it.mt=now; }
+  const cur=new Set(state.items.map(i=>i.id));
+  for(const i of (prev.items||[])) if(!cur.has(i.id)) state.deleted[i.id]=now;
+  const ps=new Map((prev.sections||[]).map(s=>[s.id,sigIt(s)]));
+  for(const s of state.sections){ const s0=ps.get(s.id); if(s0===undefined||s0!==sigIt(s)) s.mt=now; }
+  const curS=new Set(state.sections.map(s=>s.id));
+  for(const s of (prev.sections||[])) if(!curS.has(s.id)) state.deleted[s.id]=now;
+  if(JSON.stringify(prev.owned||[])!==JSON.stringify(state.owned||[])) state.ownedTs=now;
+  if(JSON.stringify(prev.waypoints||{})!==JSON.stringify(state.waypoints||{})||prev.layoutDir!==state.layoutDir) state.metaTs=now;
+  for(const k in state.deleted) if(now-state.deleted[k]>7*864e5) delete state.deleted[k];
+}
+function mergeStates(a,b){ // merge po položkách: novější mt vyhrává, tombstony řeší mazání
+  const del={}; for(const src of [a.deleted||{},b.deleted||{}]) for(const k in src) del[k]=Math.max(del[k]||0,src[k]);
+  const mergeArr=(A=[],B=[])=>{ const m=new Map(); for(const o of B) m.set(o.id,o); for(const o of A){ const p=m.get(o.id); m.set(o.id,(p&&(p.mt||0)>(o.mt||0))?p:o); } return [...m.values()].filter(o=>!(del[o.id]>(o.mt||0))); };
+  const out={...b,...a};
+  out.items=mergeArr(a.items,b.items); out.sections=mergeArr(a.sections,b.sections);
+  const mm=new Map(); for(const m of (b.members||[])) mm.set(m.name,m); for(const m of (a.members||[])) mm.set(m.name,m); out.members=[...mm.values()];
+  if((b.ownedTs||0)>(a.ownedTs||0)){ out.owned=b.owned||[]; out.ownedTs=b.ownedTs; } else { out.owned=a.owned||[]; out.ownedTs=a.ownedTs||0; }
+  if((b.metaTs||0)>(a.metaTs||0)){ out.waypoints=b.waypoints||{}; out.layoutDir=b.layoutDir; out.metaTs=b.metaTs; } else { out.waypoints=a.waypoints||{}; out.layoutDir=a.layoutDir; out.metaTs=a.metaTs||0; }
+  out.deleted=del; out.rev=Math.max(a.rev||0,b.rev||0);
+  return out; }
+function commit(){ stampChanges(); if(lastSnap!==null){ undoStack.push(lastSnap); if(undoStack.length>60) undoStack.shift(); redoStack.length=0; }
   state.rev=(state.rev||0)+1; lastSnap=JSON.stringify(state); sync.save(structuredClone(state)); }
-function undo(){ if(!undoStack.length) return; redoStack.push(JSON.stringify(state)); const p=undoStack.pop(); state=JSON.parse(p); lastSnap=p; selId=null; state.rev=(state.rev||0)+1; sync.save(structuredClone(state)); renderAll(); }
-function redo(){ if(!redoStack.length) return; undoStack.push(JSON.stringify(state)); const n=redoStack.pop(); state=JSON.parse(n); lastSnap=n; selId=null; state.rev=(state.rev||0)+1; sync.save(structuredClone(state)); renderAll(); }
-function onRemote(s){ if(!s) return; if(JSON.stringify(s)===JSON.stringify(state)) return; state=s; lastSnap=JSON.stringify(s); renderAll(); }
+function undo(){ if(!undoStack.length) return; redoStack.push(JSON.stringify(state)); const p=undoStack.pop(); state=JSON.parse(p); lastSnap=null; selId=null; commit(); renderAll(); }
+function redo(){ if(!redoStack.length) return; undoStack.push(JSON.stringify(state)); const n=redoStack.pop(); state=JSON.parse(n); lastSnap=null; selId=null; commit(); renderAll(); }
+function toast(msg){ let c=$('#toasts'); if(!c){ c=document.createElement('div'); c.id='toasts'; document.body.appendChild(c); }
+  const t=document.createElement('div'); t.className='toast'; t.textContent=msg; c.appendChild(t);
+  setTimeout(()=>{ t.classList.add('out'); setTimeout(()=>t.remove(),350); },4200); }
+function notifyRemoteDiff(oldItems,newItems){ const om=new Map(oldItems.map(i=>[i.id,i])); const nm=new Map(newItems.map(i=>[i.id,i])); const msgs=[];
+  for(const [id,n] of nm){ const o=om.get(id); if(!o){ if((n.text||'').trim()) msgs.push('＋ '+n.text); }
+    else if(o.status!==n.status){ msgs.push((n.status==='done'?'✓ ':'↺ ')+(n.text||'…')+(n.status==='done'?'':' → '+(STATES[n.status]?STATES[n.status].lbl:n.status))); }
+    else if(o.text!==n.text&&(n.text||'').trim()) msgs.push('✎ '+n.text); }
+  for(const [id,o] of om) if(!nm.has(id)&&(o.text||'').trim()) msgs.push('× '+o.text);
+  msgs.slice(0,3).forEach(m=>toast(m)); if(msgs.length>3) toast('… a '+(msgs.length-3)+' dalších změn'); }
+function onRemote(s){ if(!s) return;
+  const localJ=JSON.stringify(state); if(JSON.stringify(s)===localJ) return;
+  const oldItems=state.items.map(i=>({id:i.id,text:i.text,status:i.status}));
+  const merged=mergeStates(state,s); const mj=JSON.stringify(merged);
+  if(mj!==localJ){ state=merged; lastSnap=mj; notifyRemoteDiff(oldItems,state.items); renderAll(); }
+  if(mj!==JSON.stringify(s)) sync.save(structuredClone(state)); }
 
 const sectionById=id=>state.sections.find(s=>s.id===id);
 const itemById=id=>state.items.find(i=>i.id===id);
@@ -526,6 +571,9 @@ function openNodeMenu(e,id){ const it=itemById(id); if(!it) return; const m=$('#
   add('Přidat rodiče (← vstup)',()=>{ m.style.display='none'; addParentItem(id); });
   add('Šablona na tuhle položku…',()=>{ m.style.display='none'; openTemplateMenu(e); });
   add('Materiál & poznámky',()=>{ m.style.display='none'; openDetail(id); });
+  if(it.bee){ const ow=(state.owned||[]).includes(it.bee);
+    add(ow?'🐝 Odznačit „mám ji“':'🐝 Mám tuhle včelu',()=>{ m.style.display='none'; toggleOwned(it.bee); it.status=ow?'todo':'done'; commit(); renderAll(); }); }
+  if(childrenOf(id).length) add(it.col?'Rozbalit větev':'Sbalit větev (skrýt potomky)',()=>{ m.style.display='none'; it.col=!it.col; commit(); renderMap(); });
   hd('Stav');
   for(const k of STATE_CYCLE){ const s=STATES[k]; const b=document.createElement('button'); b.innerHTML=`<span class="sw" style="background:${cssCol(s.color)}"></span>${s.lbl}${it.status===k?'  ✓':''}`; b.onclick=()=>{ if(k==='doing'&&it.status!=='doing') it.doingTs=Date.now(); it.status=k; commit(); renderAll(); m.style.display='none'; }; m.appendChild(b); }
   sep();
@@ -563,9 +611,14 @@ const uiAlert=msg=>uiDialog({msg,cancel:null});
 
 /* ---------- MAPA ---------- */
 function applyView(){ world.style.transform=`translate(${view.x}px,${view.y}px) scale(${view.k})`; renderEdges(); }
+let hiddenIds=new Set();
+function descIds(id){ const out=new Set(); const st=childrenOf(id).map(c=>c.id); while(st.length){ const c=st.pop(); if(out.has(c)) continue; out.add(c); childrenOf(c).forEach(k=>st.push(k.id)); } return out; }
+function computeHidden(){ hiddenIds=new Set(); for(const it of state.items) if(it.col) for(const d of descIds(it.id)) if(d!==it.id) hiddenIds.add(d); }
 function renderMap(){
+  computeHidden();
   world.innerHTML=''; fieldCanvas=document.createElement('canvas'); fieldCanvas.className='field'; world.appendChild(fieldCanvas);
   for(const it of state.items){
+    if(hiddenIds.has(it.id)) continue;
     const st=STATES[it.status]||STATES.todo, stc=cssCol(st.color);
     const el=document.createElement('div'); el.className='node '+it.status+(selId===it.id?' sel':'')+(selSet.has(it.id)?' selm':'');
     el.style.left=it.x+'px'; el.style.top=it.y+'px'; el.style.borderColor=itemColorHex(it); el.dataset.id=it.id; if(it.w){ el.style.width=it.w+'px'; el.style.maxWidth='none'; } if(it.h){ el.style.minHeight=it.h+'px'; }
@@ -576,7 +629,7 @@ function renderMap(){
     const kk=childrenOf(it.id), dk=kk.filter(k=>k.status==='done').length;
     const ready = kk.length>0 && dk===kk.length && it.status!=='done' && it.status!=='stopped';
     if(ready) el.classList.add('ready');
-    const progHtml = kk.length? `<span class="nprog${ready?' go':''}" title="${ready?'Vstupy hotové – můžeš začít!':'hotovo / vstupů'}">${ready?'▶ ':''}${dk}/${kk.length}</span>`:'';
+    const progHtml = it.col? `<span class="ncol" title="Rozbalit větev (+${descIds(it.id).size} skryto)">▸ +${descIds(it.id).size}</span>` : (kk.length? `<span class="nprog${ready?' go':''}" title="${ready?'Vstupy hotové – můžeš začít!':'hotovo/vstupů · klik = sbalit větev'}">${ready?'▶ ':''}${dk}/${kk.length}</span>`:'');
     el.innerHTML=`<div class="nrow"><div class="nst" title="${st.lbl}" style="border-color:${stc};background:${it.status==='todo'?'transparent':stc}">${st.mark}</div>${it.bee?'<span class="nbee" title="🐝 '+escapeHtml(it.text)+'" style="background:'+hashColor(it.bee)+'"></span>':''}<div class="ntxt" contenteditable="false"></div>${progHtml}</div>${it.notes?'<div class="nnotes">'+escapeHtml(it.notes)+'</div>':''}${imgHtml}
       <div class="nclose">×</div><div class="nport"></div><div class="nadd" title="Přidat potomek (výstup →)">＋</div><div class="naddl" title="Přidat rodiče (← vstup)">＋</div>`;
     const tx=el.querySelector('.ntxt'); tx.textContent=it.text||''; tx.title=it.text||'';
@@ -588,7 +641,7 @@ function worldFromEvent(e){ const r=mapwrap.getBoundingClientRect(); return {x:(
 function elFor(id){ return world.querySelector(`.node[data-id="${id}"]`); }
 
 function renderField(){
-  const its=state.items.filter(i=>itemSecIds(i).length); if(!its.length){ fieldCanvas.style.display='none'; return; } fieldCanvas.style.display='block';
+  const its=state.items.filter(i=>itemSecIds(i).length&&!hiddenIds.has(i.id)); if(!its.length){ fieldCanvas.style.display='none'; return; } fieldCanvas.style.display='block';
   const pad=460,R=260; const xs=its.map(i=>i.x),ys=its.map(i=>i.y);
   const minx=Math.min(...xs)-pad,miny=Math.min(...ys)-pad,maxx=Math.max(...xs)+pad,maxy=Math.max(...ys)+pad; const W=maxx-minx,H=maxy-miny;
   const SCALE=Math.max(7,Math.ceil(Math.max(W,H)/190)); const cw=Math.max(1,Math.round(W/SCALE)),ch=Math.max(1,Math.round(H/SCALE));
@@ -614,10 +667,11 @@ function renderField(){
 function wireNode(el,it){
   const txt=el.querySelector('.ntxt');
   el.querySelector('.nst').onclick=e=>{ e.stopPropagation(); setStatus(it.id); };
+  const pg=el.querySelector('.nprog')||el.querySelector('.ncol'); if(pg) pg.onclick=e=>{ e.stopPropagation(); it.col=!it.col; commit(); renderMap(); };
   el.querySelectorAll('.nthumb').forEach(im=>{ im.draggable=false; im.onclick=e=>{ e.stopPropagation(); lightbox(it.images,+im.dataset.i||0); }; });
   const nn=el.querySelector('.nnotes'); if(nn) nn.onclick=e=>{ e.stopPropagation(); openDetail(it.id); };
   el.addEventListener('pointerdown',e=>{
-    if(['nport','nclose','nadd','naddl','nst','nthumb','nmore','nnotes'].some(c=>e.target.classList.contains(c))) return;
+    if(['nport','nclose','nadd','naddl','nst','nthumb','nmore','nnotes','nprog','ncol'].some(c=>e.target.classList.contains(c))) return;
     if(txt.getAttribute('contenteditable')==='true') return;
     const rect=el.getBoundingClientRect(), th=11;
     const nl=e.clientX-rect.left<th, nr=rect.right-e.clientX<th, nt=e.clientY-rect.top<th, nb=rect.bottom-e.clientY<th;
@@ -689,13 +743,16 @@ function renderEdges(){
     const p1=ts({x:a.x+sg*sa.w/2,y:a.y}), p2=ts({x:b.x-sg*sb.w/2,y:b.y}), c1=ts({x:a.x+sg*(sa.w/2+o),y:a.y}), c2=ts({x:b.x-sg*(sb.w/2+o),y:b.y});
     return `<path d="M${p1.x},${p1.y} C${c1.x},${c1.y} ${c2.x},${c2.y} ${p2.x},${p2.y}" ${attrs}/>`; };
   let base='',litS=''; const push=(a,b)=>{ const lit=!!(reach&&reach.has(a.id)); (lit?(litS+=draw(a,b,true)):(base+=draw(a,b,false))); };
-  for(const it of state.items){ const a=it.parentId&&itemById(it.parentId); if(a) push(a,it);
-    for(const lid of (it.links||[])){ const l=itemById(lid); if(l&&l.id!==it.parentId) push(l,it); } }
+  for(const it of state.items){ if(hiddenIds.has(it.id)) continue; const a=it.parentId&&itemById(it.parentId); if(a&&!hiddenIds.has(a.id)) push(a,it);
+    for(const lid of (it.links||[])){ const l=itemById(lid); if(l&&l.id!==it.parentId&&!hiddenIds.has(l.id)) push(l,it); } }
   html+=base+litS;
   if(linking&&linking.to){ const a=itemById(linking.from); const p1=ts({x:a.x,y:a.y}),p2=ts(linking.to); html+=`<path d="M${p1.x},${p1.y} L${p2.x},${p2.y}" stroke="#8ab4f8" stroke-width="2" stroke-dasharray="5,4" fill="none"/>`; }
   edgesSvg.innerHTML=html;
 }
-function flyTo(it){ if(!it) return; view.k=Math.max(view.k,0.8); view.x=mapwrap.clientWidth/2-it.x*view.k; view.y=mapwrap.clientHeight/2-it.y*view.k; applyView(); selectNode(it.id);
+function revealItem(id){ let c=itemById(id), changed=false; const seen=new Set();
+  while(c&&c.parentId&&!seen.has(c.id)){ seen.add(c.id); const p=itemById(c.parentId); if(p&&p.col){ p.col=false; changed=true; } c=p; }
+  if(changed){ commit(); renderMap(); } }
+function flyTo(it){ if(!it) return; revealItem(it.id); view.k=Math.max(view.k,0.8); view.x=mapwrap.clientWidth/2-it.x*view.k; view.y=mapwrap.clientHeight/2-it.y*view.k; applyView(); selectNode(it.id);
   const el=elFor(it.id); if(el){ el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); } }
 function fit(filterSec){ let its=state.items; if(filterSec) its=its.filter(i=>itemSecIds(i).includes(filterSec));
   if(!its.length){ view={x:mapwrap.clientWidth/2-200,y:mapwrap.clientHeight/2-150,k:.9}; applyView(); return; }
