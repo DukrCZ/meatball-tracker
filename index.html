@@ -105,6 +105,7 @@
   @keyframes flash { 0%,100%{box-shadow:var(--shadow);} 30%{box-shadow:0 0 0 6px rgba(26,115,232,.4);} }
   .node .nrow { display:flex; align-items:center; gap:7px; }
   .node .nst { width:15px; height:15px; border-radius:5px; border:2px solid var(--st-todo); flex:none; cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:9px; color:#fff; }
+  .node .nbee { width:11px; height:11px; border-radius:50%; flex:none; border:1px solid rgba(255,255,255,.25); }
   .node .ntxt { outline:none; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:20px; flex:1; } .node .ntxt[contenteditable="true"] { overflow:visible; text-overflow:clip; } .node.done .ntxt { text-decoration:line-through; color:var(--muted); }
   .node .nclose { position:absolute; top:-9px; right:-9px; width:20px; height:20px; border-radius:50%; background:var(--panel); border:1px solid var(--line); cursor:pointer; font-size:12px; line-height:18px; text-align:center; display:none; z-index:3; }
   .node:hover .nclose, .node.sel .nclose { display:block; }
@@ -398,6 +399,7 @@ function componentOf(id){ const seen=new Set([id]), st=[id];
   return [...seen]; }
 function sectionColor(id){ const s=sectionById(id); return s?s.color:'#9aa0a6'; }
 const cssCol=v=>v.startsWith('var(')?(getComputedStyle(document.documentElement).getPropertyValue(v.slice(4,-1)).trim()||'#999'):v;
+function hashColor(s){ let h=0; for(let i=0;i<(s||'').length;i++) h=(h*31+s.charCodeAt(i))|0; return `hsl(${((h%360)+360)%360},62%,56%)`; }
 
 /* ---------- mutace ---------- */
 function addItem({text='',parentId=null,sectionIds,x,y}={}){
@@ -564,7 +566,7 @@ function renderMap(){
     if(imgs.length===1){ imgHtml=`<img class="nthumb cover" data-i="0" src="${imgs[0].src}">`; }
     else if(imgs.length>1){ const cols=it.imgCols||(imgs.length<=4?2:3);
       imgHtml='<div class="nimgs" style="grid-template-columns:repeat('+cols+',1fr)">'+imgs.slice(0,9).map((im,k)=>`<img class="nthumb" data-i="${k}" src="${im.src}">`).join('')+(imgs.length>9?`<div class="nmore">+${imgs.length-9}</div>`:'')+'</div>'; }
-    el.innerHTML=`<div class="nrow"><div class="nst" title="${st.lbl}" style="border-color:${stc};background:${it.status==='todo'?'transparent':stc}">${st.mark}</div><div class="ntxt" contenteditable="false"></div></div>${it.notes?'<div class="nnotes">'+escapeHtml(it.notes)+'</div>':''}${imgHtml}
+    el.innerHTML=`<div class="nrow"><div class="nst" title="${st.lbl}" style="border-color:${stc};background:${it.status==='todo'?'transparent':stc}">${st.mark}</div>${it.bee?'<span class="nbee" title="🐝 '+escapeHtml(it.text)+'" style="background:'+hashColor(it.bee)+'"></span>':''}<div class="ntxt" contenteditable="false"></div></div>${it.notes?'<div class="nnotes">'+escapeHtml(it.notes)+'</div>':''}${imgHtml}
       <div class="nclose">×</div><div class="nport"></div><div class="nadd" title="Přidat potomek (výstup →)">＋</div><div class="naddl" title="Přidat rodiče (← vstup)">＋</div>`;
     const tx=el.querySelector('.ntxt'); tx.textContent=it.text||''; tx.title=it.text||'';
     wireNode(el,it); world.appendChild(el);
@@ -839,7 +841,7 @@ function renderOutline(){ const box=$('#dbOutline'); if(!box) return; box.innerH
   $('#dbPrevInfo').textContent=`${beeName(dbCurrentKey)} · ${need} k vyšlechtění · klik na jméno = rozbal · ✓ = mám (ubyde)`; }
 function buildFromDB(targetKey){ if(!beeDB) return; const cx=(mapwrap.clientWidth/2-view.x)/view.k, cy=(mapwrap.clientHeight/2-view.y)/view.k; let count=0; const CAP=400; let rootId=null; const owned=new Set(state.owned||[]);
   (function build(key,anc,parentId){ if(count>=CAP) return; const own=owned.has(key); const it={id:uid(),text:beeName(key),status:own?'done':'todo',assignees:[],parentId:parentId||null,links:[],sectionIds:activeSec?[activeSec]:[],x:cx,y:cy,images:[]}; state.items.push(it); count++; if(!rootId) rootId=it.id;
-    const r=beeDB.recipes[key]; if(r&&!own&&!anc.has(key)){ const a2=new Set(anc); a2.add(key); for(const p of r) build(p,a2,it.id); } })(targetKey,new Set(),null);
+    it.bee=key; const r=beeDB.recipes[key]; if(r&&!own&&!anc.has(key)){ const a2=new Set(anc); a2.add(key); for(const p of r) build(p,a2,it.id); } })(targetKey,new Set(),null);
   state.layoutDir='down'; tidyTreeDown(rootId); selectNode(rootId); }
 function createTreeFromForm(){ const cx=(mapwrap.clientWidth/2-view.x)/view.k, cy=(mapwrap.clientHeight/2-view.y)/view.k; let root=null;
   (function build(node,parentId){ const it={ id:uid(), text:(node.name||'').trim()||'?', status:'todo', assignees:[], parentId:parentId||null, links:[], sectionIds:activeSec?[activeSec]:[], x:cx, y:cy, images:[] }; state.items.push(it); if(!root) root=it; node.children.forEach(c=>build(c,it.id)); })(formTree,null);
