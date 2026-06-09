@@ -126,14 +126,14 @@
   .node .navs { display:flex; gap:2px; flex:none; cursor:pointer; }
   .node .nav2 { width:15px; height:15px; border-radius:50%; font-size:9px; color:#fff; display:flex; align-items:center; justify-content:center; font-weight:700; border:1px solid rgba(255,255,255,.3); }
   .toolbar button.on { background:#8ab4f8; color:#0e2c17; border-color:#8ab4f8; font-weight:600; }
-  .focusbar { display:flex; align-items:center; gap:10px; padding:7px 14px; background:var(--panel); border-bottom:1px solid var(--line); z-index:6; }
-  .focusbar .ftag { font-size:12px; font-weight:700; color:var(--muted); letter-spacing:.5px; white-space:nowrap; }
-  .focusbar.hasit .ftag { color:var(--st-doing); }
-  .focusbar .ftask { flex:1; font-size:14.5px; font-weight:600; cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--muted); min-width:0; }
-  .focusbar.hasit .ftask { color:var(--text); }
-  .focusbar.hasit { box-shadow:inset 4px 0 0 var(--st-doing); animation:focusglow 2.4s ease infinite; }
-  @keyframes focusglow { 0%,100%{ background:var(--panel); } 50%{ background:#34301f; } }
-  .focusbar button { padding:4px 10px; font-size:12px; }
+  .focusbar { display:flex; align-items:center; gap:14px; padding:13px 18px; background:var(--panel); border-bottom:1px solid var(--line); z-index:6; }
+  .focusbar .ftag { font-size:15px; font-weight:800; color:var(--muted); letter-spacing:.6px; white-space:nowrap; }
+  .focusbar.hasit .ftag { color:var(--st-doing); text-shadow:0 0 14px rgba(240,147,78,.8); }
+  .focusbar .ftask { flex:1; font-size:21px; font-weight:800; cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--accent); min-width:0; }
+  .focusbar.hasit .ftask { color:#ffd9b0; text-shadow:0 0 18px rgba(240,147,78,.55); }
+  .focusbar.hasit { border-bottom:2px solid var(--st-doing); animation:focusglow 2s ease infinite; }
+  @keyframes focusglow { 0%,100%{ background:var(--panel); box-shadow:inset 0 0 0 rgba(240,147,78,0); } 50%{ background:#3a3122; box-shadow:inset 0 0 34px rgba(240,147,78,.28); } }
+  .focusbar button { padding:6px 13px; font-size:13px; }
   .matrow .mhave { width:20px; height:20px; flex:none; border-radius:5px; border:2px solid var(--line); display:flex; align-items:center; justify-content:center; cursor:pointer; color:#fff; font-size:11px; }
   .matrow .mhave.on { background:var(--st-done); border-color:var(--st-done); }
   .matrow .mn.have { text-decoration:line-through; color:var(--muted); }
@@ -590,6 +590,7 @@ function openNodeMenu(e,id){ const it=itemById(id); if(!it) return; const m=$('#
   const add=(label,fn,cls)=>{ const b=document.createElement('button'); if(cls) b.className=cls; b.textContent=label; b.onclick=()=>fn(); m.appendChild(b); };
   const hd=t=>{ const d=document.createElement('div'); d.className='mhd'; d.textContent=t; m.appendChild(d); };
   const sep=()=>{ const d=document.createElement('div'); d.className='msep'; m.appendChild(d); };
+  add('🎯 Dělám tohle',()=>{ m.style.display='none'; startDoing(id); });
   add('Přejmenovat',()=>{ m.style.display='none'; const it2=itemById(id); if(it2){ selectNode(id); startEdit(it2); } });
   add('Přidat pod-položku (potomek →)',()=>{ m.style.display='none'; const c=addItem({parentId:id}); editOnMap(c.id); });
   add('Přidat rodiče (← vstup)',()=>{ m.style.display='none'; addParentItem(id); });
@@ -1066,10 +1067,18 @@ function myCurrentTask(){ if(!me) return null;
   for(const a of acts){ const it=itemById(a.id); if(it&&it.status==='doing') return it; }
   const mine=state.items.filter(i=>i.status==='doing'&&(i.assignees||[]).includes(me.name)).sort((a,b)=>(b.doingTs||0)-(a.doingTs||0));
   return mine[0]||null; }
+function startDoing(id){ const it=itemById(id); if(!it) return; it.status='doing'; it.doingTs=Date.now();
+  if(me&&!(it.assignees||[]).includes(me.name)){ it.assignees=it.assignees||[]; it.assignees.push(me.name); }
+  logAct(it,'doing'); commit(); renderAll(); toast('🎯 Děláš: '+(it.text||'…')); }
+function pickFocusTask(e){ const m=$('#popMenu'); m.innerHTML=''; const hd=document.createElement('div'); hd.className='mhd'; hd.textContent='Co jdeš dělat?'; m.appendChild(hd);
+  const cands=state.items.filter(i=>i.status!=='done'&&i.status!=='stopped'&&(i.text||'').trim()).sort((a,b)=>(b.doingTs||b.mt||0)-(a.doingTs||a.mt||0)).slice(0,18);
+  if(!cands.length){ const d=document.createElement('div'); d.style.cssText='padding:8px 12px;font-size:12px;color:var(--muted)'; d.textContent='Žádné otevřené úkoly.'; m.appendChild(d); }
+  for(const it of cands){ const b=document.createElement('button'); b.innerHTML=(it.status==='doing'?'▶ ':'○ ')+escapeHtml(it.text); b.onclick=()=>{ startDoing(it.id); m.style.display='none'; }; m.appendChild(b); }
+  showPop(m,e.target); }
 function renderFocus(){ const bar=$('#focusBar'); if(!bar) return; const it=myCurrentTask(); const t=$('#focusTask');
   if(it){ bar.classList.add('hasit'); t.textContent=(it.text||'…')+(it.doingTs?'  ('+timeAgo(it.doingTs)+')':''); t.onclick=()=>flyTo(itemById(it.id));
     $('#focusDone').style.display=''; $('#focusDone').onclick=()=>{ const x=itemById(it.id); if(x){ x.status='done'; logAct(x,'done'); commit(); renderAll(); toast('✓ '+(x.text||'')); } }; }
-  else { bar.classList.remove('hasit'); t.textContent='nic nerozděláno — klikni na čtvereček úkolu → „Dělá se“'; t.onclick=null; $('#focusDone').style.display='none'; } }
+  else { bar.classList.remove('hasit'); t.textContent='🎯 NIC — klikni sem a vyber co děláš'; t.onclick=e=>pickFocusTask(e); $('#focusDone').style.display='none'; } }
 $('#focusHist').onclick=e=>{ const m=$('#popMenu'); m.innerHTML=''; const hd=document.createElement('div'); hd.className='mhd'; hd.textContent='Tvoje poslední aktivita'; m.appendChild(hd);
   const acts=(state.activity||[]).filter(a=>a.who===(me&&me.name)).slice(-14).reverse();
   if(!acts.length){ const d=document.createElement('div'); d.style.cssText='padding:8px 12px;font-size:12px;color:var(--muted)'; d.textContent='Zatím nic — měň stavy úkolů.'; m.appendChild(d); }
