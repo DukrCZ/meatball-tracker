@@ -457,7 +457,7 @@ function openNodeMenu(e,id){ const it=itemById(id); if(!it) return; const m=$('#
   const add=(label,fn,cls)=>{ const b=document.createElement('button'); if(cls) b.className=cls; b.textContent=label; b.onclick=()=>fn(); m.appendChild(b); };
   const hd=t=>{ const d=document.createElement('div'); d.className='mhd'; d.textContent=t; m.appendChild(d); };
   const sep=()=>{ const d=document.createElement('div'); d.className='msep'; m.appendChild(d); };
-  add('Přejmenovat',()=>{ m.style.display='none'; const t=prompt('Text položky:',it.text); if(t!==null){ setText(id,t); renderAll(); } });
+  add('Přejmenovat',()=>{ m.style.display='none'; const it2=itemById(id); if(it2){ selectNode(id); startEdit(it2); } });
   add('Přidat pod-položku (potomek →)',()=>{ m.style.display='none'; const c=addItem({parentId:id}); editOnMap(c.id); });
   add('Přidat rodiče (← vstup)',()=>{ m.style.display='none'; addParentItem(id); });
   add('Vygenerovat rodokmen (strom)…',()=>{ m.style.display='none'; const lv=parseInt(prompt('Kolik pater rodokmenu nad touhle položkou? (2–6)\n4 = jako ta hra','4'),10); if(lv) generateBreedingTree(id,lv); });
@@ -563,7 +563,7 @@ function wireNode(el,it){
   txt.addEventListener('dblclick',e=>{ e.stopPropagation(); startEdit(it); });
   el.addEventListener('dblclick',e=>{ if(e.target.closest('.ntxt')) return; if(['nthumb','nmore','nport','nclose','nadd','nst'].some(c=>e.target.classList.contains(c))) return; openDetail(it.id); });
   txt.addEventListener('blur',()=>{ txt.setAttribute('contenteditable','false'); setText(it.id,txt.textContent); txt.textContent=it.text; renderTasks(); });
-  txt.addEventListener('keydown',e=>{ if(e.key==='Enter'){e.preventDefault();txt.blur();} if(e.key==='Escape'){txt.textContent=it.text;txt.blur();} e.stopPropagation(); });
+  txt.addEventListener('keydown',e=>{ if(e.key==='Enter'){e.preventDefault();txt.blur();} else if(e.key==='Escape'){txt.textContent=it.text;txt.blur();} else if(e.key==='Tab'){e.preventDefault();const cur=it.id;txt.blur();setTimeout(()=>editNextItem(cur),0);} e.stopPropagation(); });
   el.querySelector('.nclose').onclick=()=>deleteItem(it.id);
   el.querySelector('.nadd').onclick=e=>{ e.stopPropagation(); const c=addItem({parentId:it.id}); editOnMap(c.id); };
   el.querySelector('.naddl').onclick=e=>{ e.stopPropagation(); addParentItem(it.id); };
@@ -577,6 +577,8 @@ function selectNode(id){ selId=id; world.querySelectorAll('.node').forEach(c=>c.
 function startEdit(it){ const el=elFor(it.id); if(!el) return; const txt=el.querySelector('.ntxt'); txt.setAttribute('contenteditable','true'); txt.focus();
   const r=document.createRange(); r.selectNodeContents(txt); const s=getSelection(); s.removeAllRanges(); s.addRange(r); }
 function editOnMap(id){ const it=itemById(id); if(!it) return; flyTo(it); setTimeout(()=>startEdit(it),30); }
+function editNextItem(curId){ const items=state.items; let idx=items.findIndex(x=>x.id===curId); if(idx<0) idx=0;
+  for(let k=1;k<=items.length;k++){ const it=items[(idx+k)%items.length]; const t=(it.text||'').trim(); if(t===''||t==='?'||t==='Nápad'){ selectNode(it.id); flyTo(it); setTimeout(()=>startEdit(it),20); return; } } }
 
 function nodeSize(id){ const el=elFor(id); return el?{w:el.offsetWidth,h:el.offsetHeight}:{w:120,h:42}; }
 function borderPoint(cx,cy,w,h,tx,ty){ const dx=tx-cx,dy=ty-cy; if(!dx&&!dy) return {x:cx,y:cy}; const hw=w/2+3,hh=h/2+3; const sx=dx?hw/Math.abs(dx):1e9,sy=dy?hh/Math.abs(dy):1e9; const s=Math.min(sx,sy); return {x:cx+dx*s,y:cy+dy*s}; }
