@@ -386,6 +386,10 @@ function addParentItem(childId){ const c=itemById(childId); if(!c) return;
   commit(); renderMap(); selectNode(n.id); startEdit(n); return n; }
 function deleteItem(id){ const it=itemById(id); if(!it) return; childrenOf(id).forEach(c=>c.parentId=it.parentId);
   state.items=state.items.filter(x=>x.id!==id); state.items.forEach(x=>{ if(x.links) x.links=x.links.filter(l=>l!==id); }); if(selId===id) selId=null; commit(); renderAll(); }
+function deleteGroup(id){ const ids=new Set(componentOf(id)); state.items=state.items.filter(x=>!ids.has(x.id));
+  state.items.forEach(x=>{ if(ids.has(x.parentId)) x.parentId=null; if(x.links) x.links=x.links.filter(l=>!ids.has(l)); });
+  if(ids.has(selId)) selId=null; if(state.waypoints){ for(const k of Object.keys(state.waypoints)){ const p=k.split('|'); if(ids.has(p[0])||ids.has(p[1])) delete state.waypoints[k]; } }
+  commit(); renderAll(); }
 
 /* ---------- LEVÝ STROM / seznamy ---------- */
 function renderTasks(){
@@ -466,6 +470,7 @@ function openNodeMenu(e,id){ const it=itemById(id); if(!it) return; const m=$('#
   if(it.parentId) add('Odpojit od rodiče',()=>{ it.parentId=null; commit(); renderAll(); m.style.display='none'; });
   sep();
   add('Smazat',()=>{ deleteItem(id); m.style.display='none'; },'danger');
+  add('Smazat celou skupinu',()=>{ deleteGroup(id); m.style.display='none'; },'danger');
   showPopAt(m,e.clientX,e.clientY); }
 function openSectionMenu(e,id){ const it=itemById(id); if(!it) return; const m=$('#popMenu'); m.innerHTML='';
   const cur=itemSecIds(it);
@@ -700,7 +705,7 @@ mapwrap.addEventListener('wheel',e=>{ e.preventDefault(); const r=mapwrap.getBou
 addEventListener('keydown',e=>{ const ae=document.activeElement; if(ae&&ae.getAttribute&&ae.getAttribute('contenteditable')==='true') return; const tag=(ae?.tagName||'').toLowerCase(); if(tag==='input'||tag==='select') return; if(!selId) return;
   if(e.key==='Tab'){ e.preventDefault(); const c=addItem({parentId:selId}); editOnMap(c.id); }
   else if(e.key==='Enter'){ e.preventDefault(); const p=itemById(selId); const c=addItem({parentId:p.parentId}); editOnMap(c.id); }
-  else if(e.key==='Delete'||e.key==='Backspace'){ e.preventDefault(); deleteItem(selId); }
+  else if(e.key==='Delete'||e.key==='Backspace'){ e.preventDefault(); if(e.shiftKey) deleteGroup(selId); else deleteItem(selId); }
   else if(e.key==='F2'){ const it=itemById(selId); if(it) startEdit(it); }
   else if(e.key.length===1&&!e.ctrlKey&&!e.metaKey){ const it=itemById(selId); if(it){ const el=elFor(it.id); el.querySelector('.ntxt').textContent=''; startEdit(it); } } });
 
