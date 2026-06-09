@@ -82,6 +82,8 @@
   .node.sel { outline:2px solid var(--accent); outline-offset:2px; } .node.dim { opacity:.18; }
   .node.selm { outline:2px solid #8ab4f8; outline-offset:2px; }
   .marquee { position:absolute; border:1px solid #8ab4f8; background:rgba(138,180,248,.14); z-index:6; pointer-events:none; border-radius:2px; }
+  .dilnabar { position:absolute; top:0; left:0; right:0; display:flex; align-items:center; gap:10px; padding:9px 14px; background:#34301c; border-bottom:2px solid #f7c600; color:#f7e9b0; font-size:13px; z-index:9; }
+  .dilnabar .dlt { flex:1; font-weight:600; } .dilnabar button { padding:6px 12px; }
   .node.done { background:var(--donebg); } .node.stopped { opacity:.55; }
   .node.flash { animation:flash 1.1s ease; }
   @keyframes flash { 0%,100%{box-shadow:var(--shadow);} 30%{box-shadow:0 0 0 6px rgba(26,115,232,.4);} }
@@ -201,6 +203,7 @@
           <button id="btnZoomIn">＋</button>
           <button id="btnZoomOut">－</button>
         </div>
+        <div class="dilnabar" id="dilnaBar" style="display:none"><span class="dlt">🛠 Dílna – stavíš koncept, hlavní mapy se to nedotkne</span><button class="btn primary" id="dilnaInsert">Vložit na hlavní mapu</button><button class="btn" id="dilnaCancel">Zrušit</button></div>
         <div id="world"></div>
         <svg class="edges" id="edges"></svg>
         <div class="maphint">2× klik = položka · ＋ rodiče/potomek · Shift+táhni = celá skupina · táhni z tečky = napojit · Ctrl+Z zpět</div>
@@ -339,7 +342,7 @@ function ryb2rgb(r,y,b){ const x0=l3(RC.c000,RC.c100,r),x1=l3(RC.c010,RC.c110,r)
 
 let me=null, room='meatball', sync=null;
 let state={ sections:[], items:[], members:[], rev:0 };
-let selId=null, linking=null, focusSec=null, activeSec=null, sortMode='tree', onlyDoing=false, selSet=new Set(), spaceDown=false;
+let selId=null, linking=null, focusSec=null, activeSec=null, sortMode='tree', onlyDoing=false, selSet=new Set(), spaceDown=false, dilna=null;
 let view={x:0,y:0,k:1}; const collapsed=new Set(); let fieldCanvas=null;
 const $=s=>document.querySelector(s);
 const world=$('#world'), edgesSvg=$('#edges'), mapwrap=$('#mapwrap');
@@ -349,7 +352,7 @@ function commit(){ if(lastSnap!==null){ undoStack.push(lastSnap); if(undoStack.l
   state.rev=(state.rev||0)+1; lastSnap=JSON.stringify(state); sync.save(structuredClone(state)); }
 function undo(){ if(!undoStack.length) return; redoStack.push(JSON.stringify(state)); const p=undoStack.pop(); state=JSON.parse(p); lastSnap=p; selId=null; state.rev=(state.rev||0)+1; sync.save(structuredClone(state)); renderAll(); }
 function redo(){ if(!redoStack.length) return; undoStack.push(JSON.stringify(state)); const n=redoStack.pop(); state=JSON.parse(n); lastSnap=n; selId=null; state.rev=(state.rev||0)+1; sync.save(structuredClone(state)); renderAll(); }
-function onRemote(s){ if(!s) return; if(JSON.stringify(s)===JSON.stringify(state)) return; state=s; lastSnap=JSON.stringify(s); renderAll(); }
+function onRemote(s){ if(!s||dilna) return; if(JSON.stringify(s)===JSON.stringify(state)) return; state=s; lastSnap=JSON.stringify(s); renderAll(); }
 
 const sectionById=id=>state.sections.find(s=>s.id===id);
 const itemById=id=>state.items.find(i=>i.id===id);
@@ -477,6 +480,20 @@ function openAssignMenu(e,id){ const it=itemById(id); const m=$('#popMenu'); m.i
     b.innerHTML=`<span class="sw" style="background:${mem.color}"></span>${mem.name} ${on?'✓':''}`; b.onclick=()=>{ toggleAssignee(id,mem.name); openAssignMenu(e,id); }; m.appendChild(b); }
   showPop(m,e.target); }
 function showPopAt(m,x,y){ m.style.display='block'; m.style.left=Math.min(x,innerWidth-m.offsetWidth-10)+'px'; m.style.top=Math.min(y,innerHeight-m.offsetHeight-10)+'px'; setTimeout(()=>addEventListener('pointerdown',closePop),0); }
+function applyToSel(fn){ for(const id of selSet){ const it=itemById(id); if(it) fn(it); } commit(); renderAll(); }
+function openSelectionMenu(e){ const m=$('#popMenu'); m.innerHTML='';
+  const hd=document.createElement('div'); hd.className='mhd'; hd.textContent='Vybráno '+selSet.size+' položek'; m.appendChild(hd);
+  const mk=(html,fn,cls)=>{ const b=document.createElement('button'); if(cls) b.className=cls; b.innerHTML=html; b.onclick=()=>{ fn(); }; m.appendChild(b); };
+  const sep=()=>{ const d=document.createElement('div'); d.className='msep'; m.appendChild(d); };
+  const sub=t=>{ const d=document.createElement('div'); d.className='mhd'; d.textContent=t; m.appendChild(d); };
+  sub('Stav všem');
+  for(const k of STATE_CYCLE){ const s=STATES[k]; mk(`<span class="sw" style="background:${cssCol(s.color)}"></span>${s.lbl}`,()=>{ applyToSel(it=>{ if(k==='doing'&&it.status!=='doing') it.doingTs=Date.now(); it.status=k; }); m.style.display='none'; }); }
+  sep(); sub('Sekce všem (přidat)');
+  for(const sx of state.sections){ mk(`<span class="sw" style="background:${sx.color}"></span>${sx.icon} ${sx.name}`,()=>{ applyToSel(it=>{ const a=itemSecIds(it); if(!a.includes(sx.id)) setSecIds(it,[...a,sx.id]); }); m.style.display='none'; }); }
+  mk('Bez sekce (vyčistit)',()=>{ applyToSel(it=>setSecIds(it,[])); m.style.display='none'; });
+  sep();
+  mk('Smazat vybrané',()=>{ deleteSelection(); m.style.display='none'; },'danger');
+  showPopAt(m,e.clientX,e.clientY); }
 function openNodeMenu(e,id){ const it=itemById(id); if(!it) return; const m=$('#popMenu'); m.innerHTML='';
   const add=(label,fn,cls)=>{ const b=document.createElement('button'); if(cls) b.className=cls; b.textContent=label; b.onclick=()=>fn(); m.appendChild(b); };
   const hd=t=>{ const d=document.createElement('div'); d.className='mhd'; d.textContent=t; m.appendChild(d); };
@@ -583,7 +600,7 @@ function wireNode(el,it){
   el.addEventListener('pointermove',e=>{ if(e.buttons||txt.getAttribute('contenteditable')==='true') return; const rect=el.getBoundingClientRect(), th=11;
     const l=e.clientX-rect.left<th,r=rect.right-e.clientX<th,t=e.clientY-rect.top<th,b=rect.bottom-e.clientY<th;
     el.style.cursor=(l&&t)||(r&&b)?'nwse-resize':(r&&t)||(l&&b)?'nesw-resize':(l||r)?'ew-resize':(t||b)?'ns-resize':'grab'; });
-  el.addEventListener('contextmenu',e=>{ e.preventDefault(); selectNode(it.id); renderTasks(); openNodeMenu(e,it.id); });
+  el.addEventListener('contextmenu',e=>{ e.preventDefault(); if(selSet.has(it.id)&&selSet.size>1){ openSelectionMenu(e); } else { selectNode(it.id); renderTasks(); openNodeMenu(e,it.id); } });
   txt.addEventListener('dblclick',e=>{ e.stopPropagation(); startEdit(it); });
   el.addEventListener('dblclick',e=>{ if(e.target.closest('.ntxt')) return; if(['nthumb','nmore','nport','nclose','nadd','nst'].some(c=>e.target.classList.contains(c))) return; openDetail(it.id); });
   txt.addEventListener('blur',()=>{ txt.setAttribute('contenteditable','false'); setText(it.id,txt.textContent); txt.textContent=it.text; renderTasks(); });
@@ -719,10 +736,25 @@ function buildTreeFromText(text){ const lines=text.split('\n').filter(l=>l.trim(
 function openTemplateMenu(e){ const m=$('#popMenu'); m.innerHTML=''; const hd=document.createElement('div'); hd.className='mhd'; hd.textContent='Vložit šablonu'; m.appendChild(hd);
   for(const name of Object.keys(TEMPLATES)){ const b=document.createElement('button'); b.textContent=name; b.onclick=()=>{ insertTemplate(name); m.style.display='none'; }; m.appendChild(b); }
   const sp=document.createElement('div'); sp.className='msep'; m.appendChild(sp);
+  const dl=document.createElement('button'); dl.textContent='🛠 Postavit strom v dílně'; dl.onclick=()=>{ m.style.display='none'; openDilna(); }; m.appendChild(dl);
   const tt=document.createElement('button'); tt.textContent='📝 Strom z textu (napiš celý)'; tt.onclick=()=>{ m.style.display='none'; openTreeModal(); }; m.appendChild(tt);
   const bt=document.createElement('button'); bt.textContent='🐝 Prázdný breeding strom…'; bt.onclick=()=>{ m.style.display='none'; const lv=parseInt(prompt('Kolik pater stromu? (2–6)\n4=jako ta hra','4'),10); if(lv) insertBreedingTree(lv); }; m.appendChild(bt);
   showPopAt(m,e.clientX,e.clientY); }
 function openTreeModal(){ $('#treeText').value=''; $('#treeModal').style.display='flex'; setTimeout(()=>$('#treeText').focus(),0); }
+function openDilna(){ if(dilna) return; selSet.clear();
+  dilna={ state, sync, undo:undoStack, redo:redoStack, last:lastSnap, view:{...view}, sel:selId };
+  state={ sections:dilna.state.sections.map(s=>({...s})), items:[], members:dilna.state.members, rev:0, layoutDir:'down' };
+  sync={ save(){}, subscribe(){}, stop(){} }; undoStack=[]; redoStack=[]; lastSnap=null; selId=null;
+  view={ x:mapwrap.clientWidth/2, y:140, k:1 };
+  $('#dilnaBar').style.display='flex'; renderAll(); }
+function dilnaExit(insert){ if(!dilna) return; const draft=state.items;
+  if(insert && draft.length){ const real=dilna.state;
+    const xs=draft.map(i=>i.x),ys=draft.map(i=>i.y); const dcx=(Math.min(...xs)+Math.max(...xs))/2, dcy=(Math.min(...ys)+Math.max(...ys))/2;
+    const tx=(mapwrap.clientWidth/2-dilna.view.x)/dilna.view.k, ty=(mapwrap.clientHeight/2-dilna.view.y)/dilna.view.k;
+    const dx=tx-dcx, dy=ty-dcy; draft.forEach(it=>{ it.x+=dx; it.y+=dy; });
+    real.items.push(...draft); real.layoutDir='down'; }
+  state=dilna.state; sync=dilna.sync; undoStack=dilna.undo; redoStack=dilna.redo; lastSnap=dilna.last; view=dilna.view; selId=dilna.sel; const ins=insert; dilna=null;
+  $('#dilnaBar').style.display='none'; if(ins) commit(); renderAll(); }
 
 /* ---------- pan/zoom/keys ---------- */
 mapwrap.addEventListener('pointerdown',e=>{ if(e.target.closest('.node')||e.target.classList.contains('nport')) return;
@@ -763,7 +795,7 @@ addEventListener('keydown',e=>{ const ae=document.activeElement; if(ae&&ae.getAt
 function renderSecbar(){ const bar=$('#secbar'); bar.innerHTML='';
   for(const s of state.sections){ const chip=document.createElement('div'); chip.className='chip'+(focusSec===s.id?' focus':'');
     chip.innerHTML=`<span class="cdot" style="background:${s.color}"></span><span>${s.icon} ${s.name}</span><span class="cedit">✎</span>`;
-    chip.onclick=ev=>{ if(ev.target.classList.contains('cedit')){ openSecEdit(ev,s); return; } if(selId){ toggleSection(selId,s.id); activeSec=s.id; return; } activeSec=s.id; focusSec=focusSec===s.id?null:s.id; renderSecbar(); renderMap(); if(focusSec) fit(s.id); };
+    chip.onclick=ev=>{ if(ev.target.classList.contains('cedit')){ openSecEdit(ev,s); return; } if(selSet.size>1){ applyToSel(it=>{ const a=itemSecIds(it); if(!a.includes(s.id)) setSecIds(it,[...a,s.id]); }); activeSec=s.id; return; } if(selId){ toggleSection(selId,s.id); activeSec=s.id; return; } activeSec=s.id; focusSec=focusSec===s.id?null:s.id; renderSecbar(); renderMap(); if(focusSec) fit(s.id); };
     bar.appendChild(chip); }
   const add=document.createElement('div'); add.className='chip addsec'; add.textContent='＋ sekce';
   add.onclick=()=>{ const n=prompt('Název sekce:'); if(!n) return; const s={id:uid(),name:n.trim(),icon:'•',color:PALETTE[state.sections.length%PALETTE.length]}; state.sections.push(s); activeSec=s.id; commit(); renderAll(); }; bar.appendChild(add); }
@@ -864,6 +896,7 @@ function rebuildSectionSelect(){ const sel=$('#taskSection'); const cur=sel.valu
 $('#taskInput').addEventListener('keydown',e=>{ if(e.key==='Enter'&&e.target.value.trim()){ const sv=$('#taskSection').value; addItem({text:e.target.value.trim(),sectionIds:sv?[sv]:[]}); e.target.value=''; } });
 $('#btnFit').onclick=()=>fit(); $('#btnTidy').onclick=layeredLayout; $('#btnTpl').onclick=openTemplateMenu;
 $('#btnUndo').onclick=undo; $('#btnRedo').onclick=redo;
+$('#dilnaInsert').onclick=()=>dilnaExit(true); $('#dilnaCancel').onclick=()=>dilnaExit(false);
 $('#treeCreate').onclick=()=>{ buildTreeFromText($('#treeText').value); $('#treeModal').style.display='none'; };
 $('#treeCancel').onclick=()=>$('#treeModal').style.display='none';
 $('#treeModal').addEventListener('pointerdown',e=>{ if(e.target.id==='treeModal') $('#treeModal').style.display='none'; });
