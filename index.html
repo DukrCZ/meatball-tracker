@@ -84,6 +84,12 @@
   .marquee { position:absolute; border:1px solid #8ab4f8; background:rgba(138,180,248,.14); z-index:6; pointer-events:none; border-radius:2px; }
   .dilnabar { position:absolute; top:0; left:0; right:0; display:flex; align-items:center; gap:10px; padding:9px 14px; background:#34301c; border-bottom:2px solid #f7c600; color:#f7e9b0; font-size:13px; z-index:9; }
   .dilnabar .dlt { flex:1; font-weight:600; } .dilnabar button { padding:6px 12px; }
+  #dbSearch { width:100%; padding:9px 11px; border:1px solid var(--line); border-radius:9px; outline:none; font-size:14px; }
+  #dbSearch:focus { border-color:var(--accent); }
+  .dbrow { display:block; width:100%; text-align:left; border:1px solid var(--line); background:var(--panel); color:var(--text); border-radius:8px; padding:8px 11px; margin-bottom:5px; cursor:pointer; font-size:13.5px; }
+  .dbrow:hover { background:var(--hover); border-color:var(--accent); }
+  .dbrow .dbmod { font-size:10px; color:var(--muted); margin-left:6px; }
+  .dbrow .dbrec { font-size:11px; color:var(--muted); margin-top:2px; }
   .node.done { background:var(--donebg); } .node.stopped { opacity:.55; }
   .node.flash { animation:flash 1.1s ease; }
   @keyframes flash { 0%,100%{box-shadow:var(--shadow);} 30%{box-shadow:0 0 0 6px rgba(26,115,232,.4);} }
@@ -277,6 +283,15 @@ create policy "open" on boards
         <button class="btn" id="treeReset">Vymazat</button>
         <button class="btn" id="treeCancel" style="margin-left:auto;">Zrušit</button>
       </div>
+    </div>
+  </div>
+  <div class="modal" id="dbModal" style="display:none">
+    <div class="card" style="width:480px; max-height:84vh; display:flex; flex-direction:column;">
+      <h1>Strom z databáze 🐝</h1>
+      <p>Najdi cílovou včelu → postaví se celej rodokmen z receptů (MeatballCraft + Forestry + Magic + Extra/Career Bees).</p>
+      <input id="dbSearch" placeholder="hledej včelu (např. EMBee)…">
+      <div id="dbList" style="overflow:auto; flex:1; margin-top:10px;"></div>
+      <div style="display:flex; margin-top:10px;"><button class="btn" id="dbCancel" style="margin-left:auto;">Zavřít</button></div>
     </div>
   </div>
   <div class="modal" id="joinModal">
@@ -731,6 +746,7 @@ function buildTreeFromText(text){ const lines=text.split('\n').filter(l=>l.trim(
 function openTemplateMenu(e){ const m=$('#popMenu'); m.innerHTML=''; const hd=document.createElement('div'); hd.className='mhd'; hd.textContent='Vložit šablonu'; m.appendChild(hd);
   for(const name of Object.keys(TEMPLATES)){ const b=document.createElement('button'); b.textContent=name; b.onclick=()=>{ insertTemplate(name); m.style.display='none'; }; m.appendChild(b); }
   const sp=document.createElement('div'); sp.className='msep'; m.appendChild(sp);
+  const db=document.createElement('button'); db.textContent='🐝 Strom z databáze (auto)'; db.onclick=()=>{ m.style.display='none'; openDbModal(); }; m.appendChild(db);
   const dl=document.createElement('button'); dl.textContent='🛠 Postavit strom v dílně'; dl.onclick=()=>{ m.style.display='none'; openDilna(); }; m.appendChild(dl);
   const tt=document.createElement('button'); tt.textContent='✨ Vytvořit strom (klikací)'; tt.onclick=()=>{ m.style.display='none'; openTreeModal(); }; m.appendChild(tt);
   const bt=document.createElement('button'); bt.textContent='🐝 Prázdný breeding strom…'; bt.onclick=()=>{ m.style.display='none'; const lv=parseInt(prompt('Kolik pater stromu? (2–6)\n4=jako ta hra','4'),10); if(lv) insertBreedingTree(lv); }; m.appendChild(bt);
@@ -747,6 +763,25 @@ function renderTreeForm(){ const box=$('#treeForm'); box.innerHTML=''; (function
   else { const b=document.createElement('button'); b.className='btn'; b.textContent='＋ vstupy'; b.title='vyrobená ze 2 vstupů'; b.style.padding='5px 9px'; b.onclick=()=>{ node.children=[{name:'',children:[]},{name:'',children:[]}]; renderTreeForm(); const ins=box.querySelectorAll('input'); for(const x of ins){ if(!x.value){ x.focus(); break; } } }; row.appendChild(b); }
   box.appendChild(row); node.children.forEach(c=>rec(c,depth+1));
 })(formTree,0); }
+let beeDB=null;
+async function loadBeeDB(){ if(beeDB) return beeDB; const r=await fetch('beedb.json?v=1'); beeDB=await r.json(); return beeDB; }
+function beeName(key){ return (beeDB&&beeDB.names[key.toLowerCase()])||key.split(':').pop()||key; }
+async function openDbModal(){ $('#dbModal').style.display='flex'; $('#dbSearch').value=''; $('#dbList').innerHTML='<div style="color:var(--muted);padding:10px">Načítám databázi…</div>';
+  try{ await loadBeeDB(); }catch(e){ $('#dbList').innerHTML='<div style="color:var(--st-stopped);padding:10px">Nepodařilo se načíst databázi.</div>'; return; }
+  renderDbList(''); setTimeout(()=>$('#dbSearch').focus(),30); }
+function renderDbList(q){ const list=$('#dbList'); list.innerHTML=''; q=(q||'').trim().toLowerCase();
+  let entries=Object.keys(beeDB.recipes).map(k=>({key:k,name:beeName(k),mod:k.split(':')[0]}));
+  if(q) entries=entries.filter(e=>e.name.toLowerCase().includes(q)||e.key.toLowerCase().includes(q));
+  entries.sort((a,b)=>(a.mod==='MeatballCraft'?-1:0)-(b.mod==='MeatballCraft'?-1:0)||a.name.localeCompare(b.name));
+  if(!entries.length){ list.innerHTML='<div style="color:var(--muted);padding:10px">Nic nenalezeno.</div>'; return; }
+  for(const e of entries.slice(0,150)){ const r=beeDB.recipes[e.key]; const b=document.createElement('button'); b.className='dbrow';
+    b.innerHTML=`<b>${escapeHtml(e.name)}</b><span class="dbmod">${e.mod}</span>${r?`<div class="dbrec">= ${escapeHtml(beeName(r[0]))} + ${escapeHtml(beeName(r[1]))}</div>`:''}`;
+    b.onclick=()=>{ buildFromDB(e.key); $('#dbModal').style.display='none'; }; list.appendChild(b); } }
+function buildFromDB(targetKey){ if(!beeDB) return; const cx=(mapwrap.clientWidth/2-view.x)/view.k, cy=(mapwrap.clientHeight/2-view.y)/view.k;
+  const made={}; const node=key=>{ if(made[key]) return made[key]; const it={id:uid(),text:beeName(key),status:'todo',assignees:[],parentId:null,links:[],sectionIds:activeSec?[activeSec]:[],x:cx,y:cy,images:[]}; state.items.push(it); made[key]=it.id; return it.id; };
+  const seen=new Set();
+  (function rec(key){ if(seen.has(key)) return; seen.add(key); const id=node(key); const r=beeDB.recipes[key]; if(r){ for(const p of r){ const pid=node(p); const pit=itemById(pid); if(!pit.parentId) pit.parentId=id; else if(pit.parentId!==id&&!pit.links.includes(id)) pit.links.push(id); rec(p); } } })(targetKey);
+  state.layoutDir='down'; tidyTreeDown(made[targetKey]); selectNode(made[targetKey]); }
 function createTreeFromForm(){ const cx=(mapwrap.clientWidth/2-view.x)/view.k, cy=(mapwrap.clientHeight/2-view.y)/view.k; let root=null;
   (function build(node,parentId){ const it={ id:uid(), text:(node.name||'').trim()||'?', status:'todo', assignees:[], parentId:parentId||null, links:[], sectionIds:activeSec?[activeSec]:[], x:cx, y:cy, images:[] }; state.items.push(it); if(!root) root=it; node.children.forEach(c=>build(c,it.id)); })(formTree,null);
   state.layoutDir='down'; if(root){ tidyTreeDown(root.id); selectNode(root.id); } else { commit(); renderAll(); } }
@@ -906,6 +941,8 @@ $('#taskInput').addEventListener('keydown',e=>{ if(e.key==='Enter'&&e.target.val
 $('#btnFit').onclick=()=>fit(); $('#btnTidy').onclick=layeredLayout; $('#btnTpl').onclick=openTemplateMenu;
 $('#btnUndo').onclick=undo; $('#btnRedo').onclick=redo;
 $('#dilnaInsert').onclick=()=>dilnaExit(true); $('#dilnaCancel').onclick=()=>dilnaExit(false);
+$('#dbSearch').oninput=e=>renderDbList(e.target.value); $('#dbCancel').onclick=()=>$('#dbModal').style.display='none';
+$('#dbModal').addEventListener('pointerdown',e=>{ if(e.target.id==='dbModal') $('#dbModal').style.display='none'; });
 $('#treeCreate').onclick=()=>{ createTreeFromForm(); $('#treeModal').style.display='none'; };
 $('#treeReset').onclick=()=>{ formTree={name:'',children:[]}; renderTreeForm(); };
 $('#treeCancel').onclick=()=>$('#treeModal').style.display='none';
