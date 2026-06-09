@@ -441,6 +441,7 @@ function openNodeMenu(e,id){ const it=itemById(id); if(!it) return; const m=$('#
   add('Přejmenovat',()=>{ m.style.display='none'; const t=prompt('Text položky:',it.text); if(t!==null){ setText(id,t); renderAll(); } });
   add('Přidat pod-položku (potomek →)',()=>{ m.style.display='none'; const c=addItem({parentId:id}); editOnMap(c.id); });
   add('Přidat rodiče (← vstup)',()=>{ m.style.display='none'; addParentItem(id); });
+  add('Vygenerovat rodokmen (strom)…',()=>{ m.style.display='none'; const lv=parseInt(prompt('Kolik pater rodokmenu nad touhle položkou? (2–6)\n4 = jako ta hra','4'),10); if(lv) generateBreedingTree(id,lv); });
   add('Materiál & poznámky',()=>{ m.style.display='none'; openDetail(id); });
   hd('Stav');
   for(const k of STATE_CYCLE){ const s=STATES[k]; const b=document.createElement('button'); b.innerHTML=`<span class="sw" style="background:${cssCol(s.color)}"></span>${s.lbl}${it.status===k?'  ✓':''}`; b.onclick=()=>{ if(k==='doing'&&it.status!=='doing') it.doingTs=Date.now(); it.status=k; commit(); renderAll(); m.style.display='none'; }; m.appendChild(b); }
@@ -484,7 +485,7 @@ function elFor(id){ return world.querySelector(`.node[data-id="${id}"]`); }
 
 function renderField(){
   const its=state.items.filter(i=>itemSecIds(i).length); if(!its.length){ fieldCanvas.style.display='none'; return; } fieldCanvas.style.display='block';
-  const pad=360,R=160; const xs=its.map(i=>i.x),ys=its.map(i=>i.y);
+  const pad=460,R=260; const xs=its.map(i=>i.x),ys=its.map(i=>i.y);
   const minx=Math.min(...xs)-pad,miny=Math.min(...ys)-pad,maxx=Math.max(...xs)+pad,maxy=Math.max(...ys)+pad; const W=maxx-minx,H=maxy-miny;
   const SCALE=Math.max(7,Math.ceil(Math.max(W,H)/190)); const cw=Math.max(1,Math.round(W/SCALE)),ch=Math.max(1,Math.round(H/SCALE));
   fieldCanvas.width=cw; fieldCanvas.height=ch; fieldCanvas.style.left=minx+'px'; fieldCanvas.style.top=miny+'px'; fieldCanvas.style.width=W+'px'; fieldCanvas.style.height=H+'px';
@@ -494,10 +495,10 @@ function renderField(){
   for(let j=0;j<ch;j++) for(let i=0;i<cw;i++){
     let tot=0,ar=0,ay=0,ab=0,domW=0,secW=0,domRGB=null;
     for(const p of pts){ const dx=i-p.sx,dy=j-p.sy; const w=Math.exp(-(dx*dx+dy*dy)/denom); if(w<0.002) continue; tot+=w; ar+=w*p.ryb[0];ay+=w*p.ryb[1];ab+=w*p.ryb[2]; if(w>domW){ secW=domW; domW=w; domRGB=p.rgb; } else if(w>secW) secW=w; }
-    if(tot<0.03){ d[(j*cw+i)*4+3]=0; continue; }
+    if(tot<0.012){ d[(j*cw+i)*4+3]=0; continue; }
     const mixed=ryb2rgb(ar/tot,ay/tot,ab/tot), dom=domRGB||[.6,.6,.6]; const t=Math.min(1,(secW/(domW+secW||1))*2);
     const r=dom[0]+(mixed[0]-dom[0])*t,g=dom[1]+(mixed[1]-dom[1])*t,b=dom[2]+(mixed[2]-dom[2])*t;
-    const fade=Math.min(1,Math.max(0,(tot-0.05)/0.18)); const a=Math.min(0.4,(1-Math.exp(-tot*1.3))*0.46)*fade;
+    const fade=Math.min(1,Math.max(0,(tot-0.015)/0.1)); const a=Math.min(0.46,(1-Math.exp(-tot*1.1))*0.5)*fade;
     const o=(j*cw+i)*4; d[o]=r*255|0; d[o+1]=g*255|0; d[o+2]=b*255|0; d[o+3]=a*255|0;
   }
   ctx.putImageData(img,0,0);
@@ -631,8 +632,27 @@ function addTpl(node,parentId,x,y){ node=tplNode(node); const it={id:uid(),text:
   state.items.push(it); const n=node.c.length, ky=y-((n-1)*96)/2; node.c.forEach((k,i)=>addTpl(k,it.id,x+215,ky+i*96)); return it; }
 function insertTemplate(name){ const spec=TEMPLATES[name]; if(!spec) return; const cx=(mapwrap.clientWidth/2-view.x)/view.k, cy=(mapwrap.clientHeight/2-view.y)/view.k;
   const root=addTpl(spec,null,cx,cy); commit(); renderAll(); selectNode(root.id); }
+function insertBreedingTree(levels){ levels=Math.max(2,Math.min(6,levels||4));
+  const cx=(mapwrap.clientWidth/2-view.x)/view.k, cyTop=(mapwrap.clientHeight/2-view.y)/view.k - levels*70;
+  const spacing=145, vgap=130; const rows=[];
+  for(let L=0;L<levels;L++){ rows[L]=[]; const count=2**L; for(let i=0;i<count;i++) rows[L].push({ id:uid(), text:'?', status:'todo', assignees:[], parentId:null, links:[], sectionIds:activeSec?[activeSec]:[], x:0, y:cyTop+L*vgap, images:[] }); }
+  const leaves=rows[levels-1]; const startX=cx-(leaves.length-1)*spacing/2; leaves.forEach((n,i)=>n.x=startX+i*spacing);
+  for(let L=levels-2;L>=0;L--) rows[L].forEach((n,i)=>{ const a=rows[L+1][2*i], b=rows[L+1][2*i+1]; n.x=(a.x+b.x)/2; });
+  for(let L=0;L<levels-1;L++) rows[L].forEach((n,i)=>{ const a=rows[L+1][2*i], b=rows[L+1][2*i+1]; n.parentId=a.id; n.links=[b.id]; });
+  rows.flat().forEach(n=>state.items.push(n)); commit(); renderAll(); selectNode(rows[0][0].id); fit(); }
+function generateBreedingTree(rootId,levels){ const root=itemById(rootId); if(!root) return; levels=Math.max(2,Math.min(6,levels||4));
+  const spacing=150, vgap=130; const rows=[[root]];
+  for(let L=1;L<levels;L++){ rows[L]=[]; for(let i=0;i<2**L;i++) rows[L].push({ id:uid(), text:'?', status:'todo', assignees:[], parentId:null, links:[], sectionIds:[...itemSecIds(root)], x:0, y:root.y+L*vgap, images:[] }); }
+  const leaves=rows[levels-1]; const startX=root.x-(leaves.length-1)*spacing/2; leaves.forEach((n,i)=>n.x=startX+i*spacing);
+  for(let L=levels-2;L>=1;L--) rows[L].forEach((n,i)=>{ n.x=(rows[L+1][2*i].x+rows[L+1][2*i+1].x)/2; });
+  for(let L=0;L<levels-1;L++) rows[L].forEach((n,i)=>{ const a=rows[L+1][2*i], b=rows[L+1][2*i+1];
+    if(L===0){ n.links=n.links||[]; if(!n.parentId) n.parentId=a.id; else n.links.push(a.id); n.links.push(b.id); }
+    else { n.parentId=a.id; n.links=[b.id]; } });
+  rows.slice(1).flat().forEach(n=>state.items.push(n)); commit(); renderAll(); selectNode(root.id); fit(); }
 function openTemplateMenu(e){ const m=$('#popMenu'); m.innerHTML=''; const hd=document.createElement('div'); hd.className='mhd'; hd.textContent='Vložit šablonu'; m.appendChild(hd);
   for(const name of Object.keys(TEMPLATES)){ const b=document.createElement('button'); b.textContent=name; b.onclick=()=>{ insertTemplate(name); m.style.display='none'; }; m.appendChild(b); }
+  const sp=document.createElement('div'); sp.className='msep'; m.appendChild(sp);
+  const bt=document.createElement('button'); bt.textContent='🐝 Breeding strom (rodokmen)…'; bt.onclick=()=>{ m.style.display='none'; const lv=parseInt(prompt('Kolik pater stromu? (2–6)\n2=1 mutace, 3=malej, 4=jako ta hra, 5=velkej','4'),10); if(lv) insertBreedingTree(lv); }; m.appendChild(bt);
   showPopAt(m,e.clientX,e.clientY); }
 
 /* ---------- pan/zoom/keys ---------- */
@@ -646,6 +666,7 @@ mapwrap.addEventListener('contextmenu',e=>{ if(e.target.closest('.node')) return
   add('Nová položka',()=>{ m.style.display='none'; const c=addItem({x:w.x,y:w.y}); editOnMap(c.id); });
   const hd=document.createElement('div'); hd.className='mhd'; hd.textContent='Šablona'; m.appendChild(hd);
   for(const name of Object.keys(TEMPLATES)){ add(name,()=>{ m.style.display='none'; insertTemplate(name); }); }
+  add('🐝 Breeding strom…',()=>{ m.style.display='none'; const lv=parseInt(prompt('Kolik pater? (2–6)','4'),10); if(lv) insertBreedingTree(lv); });
   const sp=document.createElement('div'); sp.className='msep'; m.appendChild(sp);
   add('Rozložit (auto)',()=>{ m.style.display='none'; layeredLayout(); });
   add('Vycentrovat',()=>{ m.style.display='none'; fit(); });
