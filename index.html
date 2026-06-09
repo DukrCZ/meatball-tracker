@@ -295,7 +295,7 @@ create policy "open" on boards
       </div>
       <div id="dbPreview" style="display:none; flex-direction:column; min-height:0; flex:1;">
         <div id="dbPrevInfo" style="font-size:12.5px; color:var(--muted); margin-bottom:8px;"></div>
-        <div style="flex:1; overflow:auto; background:var(--canvas); border:1px solid var(--line); border-radius:10px; padding:6px;"><svg id="dbPrevSvg"></svg></div>
+        <div style="flex:1; min-height:300px; overflow:hidden; background:var(--canvas); border:1px solid var(--line); border-radius:10px; padding:6px;"><svg id="dbPrevSvg"></svg></div>
       </div>
       <div style="display:flex; gap:8px; margin-top:12px;">
         <button class="btn primary" id="dbInsert" style="display:none">Vložit na mapu</button>
@@ -789,20 +789,44 @@ function renderDbList(q){ const list=$('#dbList'); list.innerHTML=''; q=(q||'').
     b.onclick=()=>showDbPreview(e.key); list.appendChild(b); } }
 let dbCurrentKey=null;
 function showDbBrowse(){ $('#dbBrowse').style.display='flex'; $('#dbPreview').style.display='none'; $('#dbInsert').style.display='none'; $('#dbBack').style.display='none'; }
+function computeLayered(items, byId, vertical){
+  const par=it=>[it.parentId,...(it.links||[])].filter(p=>p&&byId(p));
+  const layer={}; items.forEach(it=>{ if(!par(it).length) layer[it.id]=0; });
+  let ch=true,g=0; while(ch&&g++<2000){ ch=false; for(const it of items){ const ps=par(it); if(!ps.length) continue; const pl=ps.map(p=>layer[p]); if(pl.some(v=>v===undefined)) continue; const nl=Math.max(...pl)+1; if(layer[it.id]!==nl){layer[it.id]=nl;ch=true;} } }
+  items.forEach(it=>{ if(layer[it.id]===undefined) layer[it.id]=0; });
+  const maxL=Math.max(0,...items.map(it=>layer[it.id]));
+  const N={}; items.forEach(it=>N[it.id]={id:it.id,real:1,layer:layer[it.id]});
+  const adj={}; const lk=(u,v)=>{(adj[u]=adj[u]||[]).push(v);(adj[v]=adj[v]||[]).push(u);};
+  const chains=[]; let dc=0;
+  for(const it of items) for(const p of par(it)){ const la=layer[p],lb=layer[it.id]; if(lb-la<=1){ lk(p,it.id); chains.push({key:p+'|'+it.id,mids:[]}); } else { let pv=p; const mids=[]; for(let l=la+1;l<lb;l++){ const d='d'+(dc++); N[d]={id:d,real:0,layer:l}; mids.push(d); lk(pv,d); pv=d; } lk(pv,it.id); chains.push({key:p+'|'+it.id,mids}); } }
+  const layers=[]; for(let l=0;l<=maxL;l++) layers[l]=Object.values(N).filter(n=>n.layer===l);
+  layers.forEach(L=>L.sort((a,b)=>((a.real?byId(a.id).y:0)-(b.real?byId(b.id).y:0)))); const pos={}; layers.forEach(L=>L.forEach((n,i)=>pos[n.id]=i));
+  const med=v=>{ v=v.filter(x=>x>=0).sort((a,b)=>a-b); const n=v.length; if(!n) return -1; const m=n>>1; return n%2?v[m]:(v[m-1]+v[m])/2; };
+  for(let s=0;s<14;s++){ const dn=s%2===0; const seq=dn?[...layers.keys()]:[...layers.keys()].reverse(); for(const l of seq){ const L=layers[l]; L.forEach(n=>{ const nb=(adj[n.id]||[]).filter(id=>N[id].layer===(dn?l-1:l+1)); n._m=med(nb.map(id=>pos[id])); if(n._m<0) n._m=pos[n.id]; }); L.sort((a,b)=>(a._m-b._m)||(pos[a.id]-pos[b.id])); L.forEach((n,i)=>pos[n.id]=i); } }
+  const ROWV=120,REAL=vertical?122:82,DUM=vertical?40:30,COLW=200; const Y={}; layers.forEach(L=>{ let y=0; L.forEach(n=>{ Y[n.id]=y; y+=(n.real?REAL:DUM); }); });
+  for(let r=0;r<20;r++){ for(const L of layers){ L.forEach(n=>{ const nb=adj[n.id]||[]; if(nb.length) Y[n.id]=nb.reduce((a,id)=>a+Y[id],0)/nb.length; }); L.sort((a,b)=>pos[a.id]-pos[b.id]); for(let i=1;i<L.length;i++){ const gap=(L[i].real&&L[i-1].real)?REAL:DUM; if(Y[L[i].id]<Y[L[i-1].id]+gap) Y[L[i].id]=Y[L[i-1].id]+gap; } } }
+  const xy={}; items.forEach(it=>xy[it.id]= vertical?{x:Y[it.id],y:N[it.id].layer*ROWV}:{x:N[it.id].layer*COLW,y:Y[it.id]});
+  const wp={}; for(const e of chains) if(e.mids.length) wp[e.key]=e.mids.map(id=> vertical?{x:Y[id],y:N[id].layer*ROWV}:{x:N[id].layer*COLW,y:Y[id]});
+  return {xy,wp,maxL}; }
 function showDbPreview(key){ dbCurrentKey=key;
-  const nodes={}, seen=new Set();
-  (function rec(k){ if(seen.has(k)) return; seen.add(k); if(!nodes[k]) nodes[k]={key:k,name:beeName(k),children:[]}; const r=beeDB.recipes[k]; if(r) for(const p of r){ if(!nodes[p]) nodes[p]={key:p,name:beeName(p),children:[]}; nodes[k].children.push(p); rec(p); } })(key);
-  const pos={}; let cur=0; const sn=new Set();
-  (function place(k,d){ if(sn.has(k)) return; sn.add(k); const chs=nodes[k].children.filter(c=>!sn.has(c)); if(!chs.length){ pos[k]={x:cur++,d}; } else { chs.forEach(c=>place(c,d+1)); const xs=chs.map(c=>pos[c].x); pos[k]={x:(Math.min(...xs)+Math.max(...xs))/2,d}; } })(key,0);
-  const count=Object.keys(nodes).length, maxD=Math.max(0,...Object.values(pos).map(p=>p.d));
-  const NW=86,NH=22,STX=NW+12,STY=44,padX=12,padY=10; const X=k=>padX+pos[k].x*STX, YY=k=>padY+pos[k].d*STY;
-  const maxX=Math.max(0,...Object.values(pos).map(p=>p.x)); const W=padX*2+maxX*STX+NW, H=padY*2+maxD*STY+NH;
-  let svg=`<svg id="dbPrevSvg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`;
-  for(const k in nodes) for(const c of nodes[k].children){ const x1=X(k)+NW/2,y1=YY(k)+NH,x2=X(c)+NW/2,y2=YY(c); svg+=`<path d="M${x1},${y1} C${x1},${(y1+y2)/2} ${x2},${(y1+y2)/2} ${x2},${y2}" fill="none" stroke="#8ab4f8" stroke-width="1.4"/>`; }
-  for(const k in nodes){ const x=X(k),y=YY(k),root=k===key; svg+=`<rect x="${x}" y="${y}" width="${NW}" height="${NH}" rx="6" fill="${root?'#33405e':'#2a2c31'}" stroke="${root?'#8ab4f8':'#4b4f57'}"/><text x="${x+NW/2}" y="${y+15}" text-anchor="middle" font-size="10.5" fill="#e8eaed">${escapeHtml(nodes[k].name).slice(0,13)}</text>`; }
-  svg+='</svg>';
-  $('#dbPrevSvg').outerHTML=svg;
-  $('#dbPrevInfo').textContent=`${beeName(key)} — ${count} včel, ${maxD+1} pater. (1 hlavní recept/včela; alternativní cesty přidáš ručně.)`;
+  const made={}, items=[]; const node=k=>{ if(made[k]) return made[k]; const it={id:k,text:beeName(k),parentId:null,links:[],y:0}; made[k]=it; items.push(it); return it; };
+  const seen=new Set();
+  (function rec(k){ if(seen.has(k)) return; seen.add(k); node(k); const r=beeDB.recipes[k]; if(r) for(const p of r){ const pit=node(p); if(!pit.parentId) pit.parentId=k; else if(pit.parentId!==k&&!pit.links.includes(k)) pit.links.push(k); rec(p); } })(key);
+  const {xy,wp,maxL}=computeLayered(items, id=>made[id], true);
+  const xs=items.map(it=>xy[it.id].x), ys=items.map(it=>xy[it.id].y);
+  const minx=Math.min(...xs),maxx=Math.max(...xs),miny=Math.min(...ys),maxy=Math.max(...ys);
+  const NW=86,NH=22,pad=34; const W=(maxx-minx)+NW+pad*2, H=(maxy-miny)+NH+pad*2; const PX=id=>xy[id].x-minx+pad, PY=id=>xy[id].y-miny+pad;
+  let gg='';
+  for(const it of items) for(const p of [it.parentId,...(it.links||[])].filter(Boolean)){ const mids=(wp[p+'|'+it.id]||[]).map(m=>({x:m.x-minx+pad,y:m.y-miny+pad}));
+    const pts=[{x:PX(p),y:PY(p)+NH/2},...mids,{x:PX(it.id),y:PY(it.id)-NH/2}]; let d='M'+pts[0].x.toFixed(1)+','+pts[0].y.toFixed(1);
+    for(let i=1;i<pts.length;i++){ const a=pts[i-1],b=pts[i],my=((a.y+b.y)/2).toFixed(1); d+=` C${a.x.toFixed(1)},${my} ${b.x.toFixed(1)},${my} ${b.x.toFixed(1)},${b.y.toFixed(1)}`; }
+    gg+=`<path d="${d}" fill="none" stroke="#8ab4f8" stroke-width="1.4"/>`; }
+  for(const it of items){ const root=it.id===key; gg+=`<rect x="${(PX(it.id)-NW/2).toFixed(1)}" y="${(PY(it.id)-NH/2).toFixed(1)}" width="${NW}" height="${NH}" rx="6" fill="${root?'#33405e':'#2a2c31'}" stroke="${root?'#8ab4f8':'#4b4f57'}"/><text x="${PX(it.id).toFixed(1)}" y="${(PY(it.id)+4).toFixed(1)}" text-anchor="middle" font-size="10.5" fill="#e8eaed">${escapeHtml(it.text).slice(0,13)}</text>`; }
+  $('#dbPrevSvg').outerHTML=`<svg id="dbPrevSvg" viewBox="0 0 ${W.toFixed(0)} ${H.toFixed(0)}" width="100%" height="100%" preserveAspectRatio="xMidYMid meet" style="display:block; cursor:grab; touch-action:none"><g id="dbPrevG">${gg}</g></svg>`;
+  const el=$('#dbPrevSvg'), grp=$('#dbPrevG'); let t={k:1,x:0,y:0}; const apply=()=>grp.setAttribute('transform',`translate(${t.x},${t.y}) scale(${t.k})`);
+  el.addEventListener('wheel',e=>{ e.preventDefault(); const f=e.deltaY<0?1.12:1/1.12; t.k=Math.max(0.3,Math.min(4,t.k*f)); apply(); },{passive:false});
+  el.addEventListener('pointerdown',e=>{ const sx=e.clientX,sy=e.clientY,ox=t.x,oy=t.y; el.setPointerCapture(e.pointerId); const mv=ev=>{ t.x=ox+(ev.clientX-sx); t.y=oy+(ev.clientY-sy); apply(); }; const up=()=>{ el.releasePointerCapture(e.pointerId); el.removeEventListener('pointermove',mv); el.removeEventListener('pointerup',up); }; el.addEventListener('pointermove',mv); el.addEventListener('pointerup',up); });
+  $('#dbPrevInfo').textContent=`${beeName(key)} — ${items.length} včel, ${maxL+1} pater · kolečko = zoom, táhni = posun · (1 hlavní recept/včela)`;
   $('#dbBrowse').style.display='none'; $('#dbPreview').style.display='flex'; $('#dbInsert').style.display=''; $('#dbBack').style.display=''; }
 function buildFromDB(targetKey){ if(!beeDB) return; const cx=(mapwrap.clientWidth/2-view.x)/view.k, cy=(mapwrap.clientHeight/2-view.y)/view.k;
   const made={}; const node=key=>{ if(made[key]) return made[key]; const it={id:uid(),text:beeName(key),status:'todo',assignees:[],parentId:null,links:[],sectionIds:activeSec?[activeSec]:[],x:cx,y:cy,images:[]}; state.items.push(it); made[key]=it.id; return it.id; };
