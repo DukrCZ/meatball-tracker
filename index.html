@@ -118,6 +118,14 @@
   .toast.out { opacity:0; transform:translateX(14px); }
   .node .ncol { font-size:10px; color:#0e2c17; background:#8ab4f8; border-radius:8px; padding:1px 6px; flex:none; cursor:pointer; font-weight:700; }
   .node .nprog { cursor:pointer; }
+  .node .nmats { margin:4px 0 2px; border-top:1px dashed var(--line); padding-top:4px; }
+  .node .nmat { font-size:11px; color:var(--text); padding:1px 2px; border-radius:4px; cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .node .nmat:hover { background:var(--hover); }
+  .node .nmat.have { color:#46c46a; text-decoration:line-through; opacity:.75; }
+  .node .nmatsum { font-size:10px; color:var(--muted); margin-top:2px; }
+  .matrow .mhave { width:20px; height:20px; flex:none; border-radius:5px; border:2px solid var(--line); display:flex; align-items:center; justify-content:center; cursor:pointer; color:#fff; font-size:11px; }
+  .matrow .mhave.on { background:var(--st-done); border-color:var(--st-done); }
+  .matrow .mn.have { text-decoration:line-through; color:var(--muted); }
   .node .ntxt { outline:none; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:20px; flex:1; } .node .ntxt[contenteditable="true"] { overflow:visible; text-overflow:clip; } .node.done .ntxt { text-decoration:line-through; color:var(--muted); }
   .node .nclose { position:absolute; top:-9px; right:-9px; width:20px; height:20px; border-radius:50%; background:var(--panel); border:1px solid var(--line); cursor:pointer; font-size:12px; line-height:18px; text-align:center; display:none; z-index:3; }
   .node:hover .nclose, .node.sel .nclose { display:block; }
@@ -258,7 +266,7 @@
   <div class="modal" id="blogModal" style="display:none">
     <div class="card" style="width:460px; max-height:82vh; display:flex; flex-direction:column;">
       <h1 style="display:flex; align-items:center;">🧱 Build log <button id="blogClose" style="margin-left:auto; border:none; background:none; font-size:22px; cursor:pointer; color:var(--muted)">×</button></h1>
-      <p>Součet materiálu přes celý strom (započítané násobiče × u položek).</p>
+      <p>Co ještě chybí přes celý strom (✓ „mám" se nepočítá; násobiče × započítané).</p>
       <div id="blogList" style="overflow:auto; flex:1;"></div>
       <div id="blogTotal" style="margin-top:12px; padding-top:10px; border-top:1px solid var(--line); font-size:15px; font-weight:600;"></div>
     </div>
@@ -626,11 +634,14 @@ function renderMap(){
     if(imgs.length===1){ imgHtml=`<img class="nthumb cover" data-i="0" src="${imgs[0].src}">`; }
     else if(imgs.length>1){ const cols=it.imgCols||(imgs.length<=4?2:3);
       imgHtml='<div class="nimgs" style="grid-template-columns:repeat('+cols+',1fr)">'+imgs.slice(0,9).map((im,k)=>`<img class="nthumb" data-i="${k}" src="${im.src}">`).join('')+(imgs.length>9?`<div class="nmore">+${imgs.length-9}</div>`:'')+'</div>'; }
+    const matsIdx=(it.materials||[]).map((m,i)=>({m,i})).filter(x=>(x.m.n||'').trim());
+    const mh=matsIdx.filter(x=>x.m.h).length;
+    const matHtml=matsIdx.length?'<div class="nmats" title="klik = mám/nemám">'+matsIdx.slice(0,10).map(x=>`<div class="nmat ${x.m.h?'have':''}" data-mi="${x.i}">${x.m.h?'✓':'○'} ${escapeHtml(x.m.n)}${String(x.m.q||'').trim()?' ×'+escapeHtml(String(x.m.q)):''}</div>`).join('')+(matsIdx.length>10?'<div class="nmat">…+'+(matsIdx.length-10)+'</div>':'')+`<div class="nmatsum">${mh}/${matsIdx.length} mám</div>`+'</div>':'';
     const kk=childrenOf(it.id), dk=kk.filter(k=>k.status==='done').length;
     const ready = kk.length>0 && dk===kk.length && it.status!=='done' && it.status!=='stopped';
     if(ready) el.classList.add('ready');
     const progHtml = it.col? `<span class="ncol" title="Rozbalit větev (+${descIds(it.id).size} skryto)">▸ +${descIds(it.id).size}</span>` : (kk.length? `<span class="nprog${ready?' go':''}" title="${ready?'Vstupy hotové – můžeš začít!':'hotovo/vstupů · klik = sbalit větev'}">${ready?'▶ ':''}${dk}/${kk.length}</span>`:'');
-    el.innerHTML=`<div class="nrow"><div class="nst" title="${st.lbl}" style="border-color:${stc};background:${it.status==='todo'?'transparent':stc}">${st.mark}</div>${it.bee?'<span class="nbee" title="🐝 '+escapeHtml(it.text)+'" style="background:'+hashColor(it.bee)+'"></span>':''}<div class="ntxt" contenteditable="false"></div>${progHtml}</div>${it.notes?'<div class="nnotes">'+escapeHtml(it.notes)+'</div>':''}${imgHtml}
+    el.innerHTML=`<div class="nrow"><div class="nst" title="${st.lbl}" style="border-color:${stc};background:${it.status==='todo'?'transparent':stc}">${st.mark}</div>${it.bee?'<span class="nbee" title="🐝 '+escapeHtml(it.text)+'" style="background:'+hashColor(it.bee)+'"></span>':''}<div class="ntxt" contenteditable="false"></div>${progHtml}</div>${it.notes?'<div class="nnotes">'+escapeHtml(it.notes)+'</div>':''}${matHtml}${imgHtml}
       <div class="nclose">×</div><div class="nport"></div><div class="nadd" title="Přidat potomek (výstup →)">＋</div><div class="naddl" title="Přidat rodiče (← vstup)">＋</div>`;
     const tx=el.querySelector('.ntxt'); tx.textContent=it.text||''; tx.title=it.text||'';
     wireNode(el,it); world.appendChild(el);
@@ -668,10 +679,11 @@ function wireNode(el,it){
   const txt=el.querySelector('.ntxt');
   el.querySelector('.nst').onclick=e=>{ e.stopPropagation(); setStatus(it.id); };
   const pg=el.querySelector('.nprog')||el.querySelector('.ncol'); if(pg) pg.onclick=e=>{ e.stopPropagation(); it.col=!it.col; commit(); renderMap(); };
+  el.querySelectorAll('.nmat[data-mi]').forEach(md=>md.onclick=e=>{ e.stopPropagation(); const m=(it.materials||[])[+md.dataset.mi]; if(m){ m.h=!m.h; commit(); renderMap(); if(detailId===it.id) renderMats(); } });
   el.querySelectorAll('.nthumb').forEach(im=>{ im.draggable=false; im.onclick=e=>{ e.stopPropagation(); lightbox(it.images,+im.dataset.i||0); }; });
   const nn=el.querySelector('.nnotes'); if(nn) nn.onclick=e=>{ e.stopPropagation(); openDetail(it.id); };
   el.addEventListener('pointerdown',e=>{
-    if(['nport','nclose','nadd','naddl','nst','nthumb','nmore','nnotes','nprog','ncol'].some(c=>e.target.classList.contains(c))) return;
+    if(['nport','nclose','nadd','naddl','nst','nthumb','nmore','nnotes','nprog','ncol','nmat','nmats','nmatsum'].some(c=>e.target.classList.contains(c))) return;
     if(txt.getAttribute('contenteditable')==='true') return;
     const rect=el.getBoundingClientRect(), th=11;
     const nl=e.clientX-rect.left<th, nr=rect.right-e.clientX<th, nt=e.clientY-rect.top<th, nb=rect.bottom-e.clientY<th;
@@ -726,7 +738,7 @@ function smoothPath(pts){ if(pts.length<2) return ''; let d=`M${pts[0].x.toFixed
     d+=` C${c1x.toFixed(1)},${c1y.toFixed(1)} ${c2x.toFixed(1)},${c2y.toFixed(1)} ${p2.x.toFixed(1)},${p2.y.toFixed(1)}`; } return d; }
 function renderEdges(){
   const Wd=mapwrap.clientWidth,Hd=mapwrap.clientHeight; edgesSvg.setAttribute('viewBox',`0 0 ${Wd} ${Hd}`); const ts=p=>({x:p.x*view.k+view.x,y:p.y*view.k+view.y});
-  const dir=state.layoutDir;
+  const orient={}; for(const it of state.items){ const tg=state.items.filter(c=>c.parentId===it.id||(c.links||[]).includes(it.id)); if(tg.length) orient[it.id]=tg.every(c=>c.y-it.y>=60)?'v':'h'; }
   let reach=null; // potomci vybraného uzlu (kam vedou šipky)
   if(selId){ reach=new Set([selId]); const st=[selId]; while(st.length){ const cur=st.pop(); for(const it of state.items){ if(!reach.has(it.id) && [it.parentId,...(it.links||[])].includes(cur)){ reach.add(it.id); st.push(it.id); } } } }
   let html=`<defs><marker id="ar" markerWidth="9" markerHeight="9" refX="6.5" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#5d626b"/></marker><marker id="arL" markerWidth="10" markerHeight="10" refX="6.5" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#8ab4f8"/></marker></defs>`;
@@ -735,7 +747,7 @@ function renderEdges(){
     const wp=state.waypoints&&state.waypoints[a.id+'|'+b.id];
     if(wp&&wp.length){ const pts=[{x:a.x+sa.w/2,y:a.y},...wp,{x:b.x-sb.w/2,y:b.y}].map(ts); return `<path d="${smoothPath(pts)}" ${attrs}/>`; }
     const dxa=b.x-a.x, dya=b.y-a.y;
-    const horiz = dir==='right' ? true : dir==='down' ? false : (Math.abs(dxa) > Math.abs(dya)*1.5);
+    const horiz = orient[a.id]!=='v';
     if(!horiz){ const sg=dya>=0?1:-1; const p1=ts({x:a.x,y:a.y+sg*sa.h/2}), p2=ts({x:b.x,y:b.y-sg*sb.h/2}); const my=(p1.y+p2.y)/2, hx=p2.x>=p1.x?1:-1, r=Math.max(0,Math.min(11,Math.abs(p2.x-p1.x)/2,Math.abs(p2.y-p1.y)/2));
       const d=(Math.abs(p2.x-p1.x)<2||r<1)?`M${p1.x},${p1.y} L${p2.x},${p2.y}`:`M${p1.x},${p1.y} L${p1.x},${my-sg*r} Q${p1.x},${my} ${p1.x+hx*r},${my} L${p2.x-hx*r},${my} Q${p2.x},${my} ${p2.x},${my+sg*r} L${p2.x},${p2.y}`;
       return `<path d="${d}" ${attrs}/>`; }
@@ -984,7 +996,8 @@ function closeDetail(){ detailId=null; $('#detail').classList.remove('open'); }
 function renderMats(){ const it=itemById(detailId); if(!it) return; const box=$('#dMats'); box.innerHTML='';
   it.materials.forEach((mt,i)=>{ const r=document.createElement('div'); r.className='matrow';
     const esc=s=>String(s==null?'':s).replace(/"/g,'&quot;');
-    r.innerHTML=`<input class="mn" placeholder="materiál" value="${esc(mt.n)}"><input class="mq" placeholder="0" value="${esc(mt.q)}"><span class="mqv"></span><button class="mdel">×</button>`;
+    r.innerHTML=`<span class="mhave ${mt.h?'on':''}" title="Mám to">${mt.h?'✓':''}</span><input class="mn ${mt.h?'have':''}" placeholder="materiál" value="${esc(mt.n)}"><input class="mq" placeholder="0" value="${esc(mt.q)}"><span class="mqv"></span><button class="mdel">×</button>`;
+    r.querySelector('.mhave').onclick=()=>{ mt.h=!mt.h; commit(); renderMats(); renderMap(); };
     const upd=()=>{ r.querySelector('.mqv').textContent='= '+fmtN(safeNum(mt.q)*(safeNum(it.mult)||1)); };
     r.querySelector('.mn').oninput=e=>{ mt.n=e.target.value; debCommit(); };
     r.querySelector('.mq').oninput=e=>{ mt.q=e.target.value; upd(); renderTotal(); debCommit(); };
@@ -1001,7 +1014,7 @@ $('#dAddMat').onclick=()=>{ const it=itemById(detailId); if(it){ it.materials.pu
 
 function openBuildLog(){ const agg={}; let grand=0;
   for(const it of state.items){ const mult=safeNum(it.mult)||1; if(!it.materials) continue;
-    for(const mm of it.materials){ const name=(mm.n||'').trim(); if(!name) continue; const q=safeNum(mm.q)*mult; if(!q) continue;
+    for(const mm of it.materials){ if(mm.h) continue; const name=(mm.n||'').trim(); if(!name) continue; const q=safeNum(mm.q)*mult; if(!q) continue;
       const k=name.toLowerCase(); if(!agg[k]) agg[k]={name,total:0,from:new Set()}; agg[k].total+=q; if(it.text) agg[k].from.add(it.text); grand+=q; } }
   const rows=Object.values(agg).sort((a,b)=>b.total-a.total); const list=$('#blogList');
   list.innerHTML = rows.length?'':'<div style="color:var(--muted);font-size:13px;padding:10px 0">Zatím žádný materiál. Přidej ho přes 📋 u položek.</div>';
