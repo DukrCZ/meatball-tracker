@@ -657,12 +657,13 @@ function renderEdges(){
     const stroke=lit?'#8ab4f8':'#5d626b', sw=lit?3:2, op=(reach&&!lit)?0.12:1, attrs=`fill="none" stroke="${stroke}" stroke-width="${sw}" stroke-opacity="${op}" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#${lit?'arL':'ar'})"`;
     const wp=state.waypoints&&state.waypoints[a.id+'|'+b.id];
     if(wp&&wp.length){ const pts=[{x:a.x+sa.w/2,y:a.y},...wp,{x:b.x-sb.w/2,y:b.y}].map(ts); return `<path d="${smoothPath(pts)}" ${attrs}/>`; }
-    const dxa=b.x-a.x, dya=b.y-a.y; let p1,p2,c1,c2;
+    const dxa=b.x-a.x, dya=b.y-a.y;
     const horiz = dir==='right' ? true : dir==='down' ? false : (Math.abs(dxa) > Math.abs(dya)*1.5);
-    if(horiz){ const sg=dxa>=0?1:-1, o=Math.max(28,Math.abs(dxa)*0.42);
-      p1=ts({x:a.x+sg*sa.w/2,y:a.y}); p2=ts({x:b.x-sg*sb.w/2,y:b.y}); c1=ts({x:a.x+sg*(sa.w/2+o),y:a.y}); c2=ts({x:b.x-sg*(sb.w/2+o),y:b.y}); }
-    else { const sg=dya>=0?1:-1, o=Math.max(28,Math.abs(dya)*0.42);
-      p1=ts({x:a.x,y:a.y+sg*sa.h/2}); p2=ts({x:b.x,y:b.y-sg*sb.h/2}); c1=ts({x:a.x,y:a.y+sg*(sa.h/2+o)}); c2=ts({x:b.x,y:b.y-sg*(sb.h/2+o)}); }
+    if(!horiz){ const sg=dya>=0?1:-1; const p1=ts({x:a.x,y:a.y+sg*sa.h/2}), p2=ts({x:b.x,y:b.y-sg*sb.h/2}); const my=(p1.y+p2.y)/2, hx=p2.x>=p1.x?1:-1, r=Math.max(0,Math.min(11,Math.abs(p2.x-p1.x)/2,Math.abs(p2.y-p1.y)/2));
+      const d=(Math.abs(p2.x-p1.x)<2||r<1)?`M${p1.x},${p1.y} L${p2.x},${p2.y}`:`M${p1.x},${p1.y} L${p1.x},${my-sg*r} Q${p1.x},${my} ${p1.x+hx*r},${my} L${p2.x-hx*r},${my} Q${p2.x},${my} ${p2.x},${my+sg*r} L${p2.x},${p2.y}`;
+      return `<path d="${d}" ${attrs}/>`; }
+    const sg=dxa>=0?1:-1, o=Math.max(28,Math.abs(dxa)*0.42);
+    const p1=ts({x:a.x+sg*sa.w/2,y:a.y}), p2=ts({x:b.x-sg*sb.w/2,y:b.y}), c1=ts({x:a.x+sg*(sa.w/2+o),y:a.y}), c2=ts({x:b.x-sg*(sb.w/2+o),y:b.y});
     return `<path d="M${p1.x},${p1.y} C${c1.x},${c1.y} ${c2.x},${c2.y} ${p2.x},${p2.y}" ${attrs}/>`; };
   let base='',litS=''; const push=(a,b)=>{ const lit=!!(reach&&reach.has(a.id)); (lit?(litS+=draw(a,b,true)):(base+=draw(a,b,false))); };
   for(const it of state.items){ const a=it.parentId&&itemById(it.parentId); if(a) push(a,it);
@@ -752,7 +753,7 @@ function buildTreeFromText(text){ const lines=text.split('\n').filter(l=>l.trim(
     const parentId=depth>0?(stack[depth-1]||null):null;
     const it={ id:uid(), text:t, status:'todo', assignees:[], parentId:parentId, links:[], sectionIds:activeSec?[activeSec]:[], x:cx, y:cy, images:[] };
     state.items.push(it); stack[depth]=it.id; stack.length=depth+1; if(depth===0&&!firstRoot) firstRoot=it.id; }
-  state.layoutDir='down'; if(firstRoot){ layeredLayout(true); selectNode(firstRoot); } else { commit(); renderAll(); fit(); } }
+  state.layoutDir='down'; if(firstRoot){ tidyTreeDown(firstRoot); selectNode(firstRoot); } else { commit(); renderAll(); fit(); } }
 function openTemplateMenu(e){ const m=$('#popMenu'); m.innerHTML=''; const hd=document.createElement('div'); hd.className='mhd'; hd.textContent='Vložit šablonu'; m.appendChild(hd);
   for(const name of Object.keys(TEMPLATES)){ const b=document.createElement('button'); b.textContent=name; b.onclick=()=>{ insertTemplate(name); m.style.display='none'; }; m.appendChild(b); }
   const sp=document.createElement('div'); sp.className='msep'; m.appendChild(sp);
@@ -809,33 +810,34 @@ function computeLayered(items, byId, vertical){
   const wp={}; for(const e of chains) if(e.mids.length) wp[e.key]=e.mids.map(id=> vertical?{x:Y[id],y:N[id].layer*ROWV}:{x:N[id].layer*COLW,y:Y[id]});
   return {xy,wp,maxL}; }
 function showDbPreview(key){ dbCurrentKey=key;
-  const made={}, items=[]; const node=k=>{ if(made[k]) return made[k]; const it={id:k,text:beeName(k),parentId:null,links:[],y:0}; made[k]=it; items.push(it); return it; };
-  const seen=new Set();
-  (function rec(k){ if(seen.has(k)) return; seen.add(k); node(k); const r=beeDB.recipes[k]; if(r) for(const p of r){ const pit=node(p); if(!pit.parentId) pit.parentId=k; else if(pit.parentId!==k&&!pit.links.includes(k)) pit.links.push(k); rec(p); } })(key);
-  const {xy,wp,maxL}=computeLayered(items, id=>made[id], true);
-  const xs=items.map(it=>xy[it.id].x), ys=items.map(it=>xy[it.id].y);
-  const minx=Math.min(...xs),maxx=Math.max(...xs),miny=Math.min(...ys),maxy=Math.max(...ys);
-  const NW=86,NH=22,pad=34; const W=(maxx-minx)+NW+pad*2, H=(maxy-miny)+NH+pad*2; const PX=id=>xy[id].x-minx+pad, PY=id=>xy[id].y-miny+pad;
+  const items=[], byId={}; let count=0; const CAP=400;
+  (function build(k,anc,parentId){ if(count>=CAP) return; const it={id:uid(),text:beeName(k),parentId:parentId||null,x:0,y:0}; items.push(it); byId[it.id]=it; count++;
+    const r=beeDB.recipes[k]; if(r&&!anc.has(k)){ const a2=new Set(anc); a2.add(k); for(const p of r) build(p,a2,it.id); } })(key,new Set(),null);
+  const rootId=items[0].id;
+  const kids={}; items.forEach(it=>{ if(it.parentId)(kids[it.parentId]=kids[it.parentId]||[]).push(it.id); });
+  const vgap=54,hgap=88; let cur=0; const seen=new Set();
+  (function place(id,d){ if(seen.has(id)) return; seen.add(id); const ch=kids[id]||[]; byId[id].y=d*vgap; if(!ch.length){ byId[id].x=cur*hgap; cur++; } else { ch.forEach(c=>place(c,d+1)); const xs=ch.map(c=>byId[c].x); byId[id].x=(Math.min(...xs)+Math.max(...xs))/2; } })(rootId,0);
+  const xs=items.map(i=>i.x), ys=items.map(i=>i.y); const minx=Math.min(...xs),maxx=Math.max(...xs),miny=Math.min(...ys),maxy=Math.max(...ys);
+  const NW=76,NH=19,pad=28; const W=(maxx-minx)+NW+pad*2, H=(maxy-miny)+NH+pad*2; const PX=i=>i.x-minx+pad, PY=i=>i.y-miny+pad;
   let gg='';
-  for(const it of items) for(const p of [it.parentId,...(it.links||[])].filter(Boolean)){ const mids=(wp[p+'|'+it.id]||[]).map(m=>({x:m.x-minx+pad,y:m.y-miny+pad}));
-    const pts=[{x:PX(p),y:PY(p)+NH/2},...mids,{x:PX(it.id),y:PY(it.id)-NH/2}]; let d='M'+pts[0].x.toFixed(1)+','+pts[0].y.toFixed(1);
-    for(let i=1;i<pts.length;i++){ const a=pts[i-1],b=pts[i],my=((a.y+b.y)/2).toFixed(1); d+=` C${a.x.toFixed(1)},${my} ${b.x.toFixed(1)},${my} ${b.x.toFixed(1)},${b.y.toFixed(1)}`; }
+  for(const it of items){ if(!it.parentId) continue; const a=byId[it.parentId]; const x1=PX(a),y1=PY(a)+NH/2,x2=PX(it),y2=PY(it)-NH/2,my=(y1+y2)/2,hx=x2>=x1?1:-1,r=Math.min(7,Math.abs(x2-x1)/2,Math.abs(y2-y1)/2);
+    let d; if(Math.abs(x2-x1)<2) d=`M${x1},${y1.toFixed(1)} L${x2},${y2.toFixed(1)}`;
+    else d=`M${x1},${y1.toFixed(1)} L${x1},${(my-r).toFixed(1)} Q${x1},${my.toFixed(1)} ${(x1+hx*r).toFixed(1)},${my.toFixed(1)} L${(x2-hx*r).toFixed(1)},${my.toFixed(1)} Q${x2},${my.toFixed(1)} ${x2},${(my+r).toFixed(1)} L${x2},${y2.toFixed(1)}`;
     gg+=`<path d="${d}" fill="none" stroke="#8ab4f8" stroke-width="1.4"/>`; }
-  for(const it of items){ const root=it.id===key; gg+=`<rect x="${(PX(it.id)-NW/2).toFixed(1)}" y="${(PY(it.id)-NH/2).toFixed(1)}" width="${NW}" height="${NH}" rx="6" fill="${root?'#33405e':'#2a2c31'}" stroke="${root?'#8ab4f8':'#4b4f57'}"/><text x="${PX(it.id).toFixed(1)}" y="${(PY(it.id)+4).toFixed(1)}" text-anchor="middle" font-size="10.5" fill="#e8eaed">${escapeHtml(it.text).slice(0,13)}</text>`; }
+  for(const it of items){ const root=it.id===rootId; gg+=`<g><title>${escapeHtml(it.text)}</title><rect x="${(PX(it)-NW/2).toFixed(1)}" y="${(PY(it)-NH/2).toFixed(1)}" width="${NW}" height="${NH}" rx="5" fill="${root?'#33405e':'#2a2c31'}" stroke="${root?'#8ab4f8':'#4b4f57'}"/><text x="${PX(it).toFixed(1)}" y="${(PY(it)+3.5).toFixed(1)}" text-anchor="middle" font-size="9.5" fill="#e8eaed">${escapeHtml(it.text).slice(0,12)}</text></g>`; }
   $('#dbPrevSvg').outerHTML=`<svg id="dbPrevSvg" viewBox="0 0 ${W.toFixed(0)} ${H.toFixed(0)}" width="100%" height="100%" preserveAspectRatio="xMidYMid meet" style="display:block; cursor:grab; touch-action:none"><g id="dbPrevG">${gg}</g></svg>`;
   const el=$('#dbPrevSvg'), grp=$('#dbPrevG'); let t={k:1,x:0,y:0}; const apply=()=>grp.setAttribute('transform',`translate(${t.x},${t.y}) scale(${t.k})`);
   el.addEventListener('wheel',e=>{ e.preventDefault(); const f=e.deltaY<0?1.12:1/1.12; t.k=Math.max(0.3,Math.min(4,t.k*f)); apply(); },{passive:false});
   el.addEventListener('pointerdown',e=>{ const sx=e.clientX,sy=e.clientY,ox=t.x,oy=t.y; el.setPointerCapture(e.pointerId); const mv=ev=>{ t.x=ox+(ev.clientX-sx); t.y=oy+(ev.clientY-sy); apply(); }; const up=()=>{ el.releasePointerCapture(e.pointerId); el.removeEventListener('pointermove',mv); el.removeEventListener('pointerup',up); }; el.addEventListener('pointermove',mv); el.addEventListener('pointerup',up); });
-  $('#dbPrevInfo').textContent=`${beeName(key)} — ${items.length} včel, ${maxL+1} pater · kolečko = zoom, táhni = posun · (1 hlavní recept/včela)`;
+  $('#dbPrevInfo').textContent=`${beeName(key)} — ${count} včel${count>=CAP?' (zkráceno)':''} · najeď myší = jméno · kolečko=zoom, táhni=posun`;
   $('#dbBrowse').style.display='none'; $('#dbPreview').style.display='flex'; $('#dbInsert').style.display=''; $('#dbBack').style.display=''; }
-function buildFromDB(targetKey){ if(!beeDB) return; const cx=(mapwrap.clientWidth/2-view.x)/view.k, cy=(mapwrap.clientHeight/2-view.y)/view.k;
-  const made={}; const node=key=>{ if(made[key]) return made[key]; const it={id:uid(),text:beeName(key),status:'todo',assignees:[],parentId:null,links:[],sectionIds:activeSec?[activeSec]:[],x:cx,y:cy,images:[]}; state.items.push(it); made[key]=it.id; return it.id; };
-  const seen=new Set();
-  (function rec(key){ if(seen.has(key)) return; seen.add(key); const id=node(key); const r=beeDB.recipes[key]; if(r){ for(const p of r){ const pid=node(p); const pit=itemById(pid); if(!pit.parentId) pit.parentId=id; else if(pit.parentId!==id&&!pit.links.includes(id)) pit.links.push(id); rec(p); } } })(targetKey);
-  state.layoutDir='down'; layeredLayout(true); selectNode(made[targetKey]); }
+function buildFromDB(targetKey){ if(!beeDB) return; const cx=(mapwrap.clientWidth/2-view.x)/view.k, cy=(mapwrap.clientHeight/2-view.y)/view.k; let count=0; const CAP=400; let rootId=null;
+  (function build(key,anc,parentId){ if(count>=CAP) return; const it={id:uid(),text:beeName(key),status:'todo',assignees:[],parentId:parentId||null,links:[],sectionIds:activeSec?[activeSec]:[],x:cx,y:cy,images:[]}; state.items.push(it); count++; if(!rootId) rootId=it.id;
+    const r=beeDB.recipes[key]; if(r&&!anc.has(key)){ const a2=new Set(anc); a2.add(key); for(const p of r) build(p,a2,it.id); } })(targetKey,new Set(),null);
+  state.layoutDir='down'; tidyTreeDown(rootId); selectNode(rootId); }
 function createTreeFromForm(){ const cx=(mapwrap.clientWidth/2-view.x)/view.k, cy=(mapwrap.clientHeight/2-view.y)/view.k; let root=null;
   (function build(node,parentId){ const it={ id:uid(), text:(node.name||'').trim()||'?', status:'todo', assignees:[], parentId:parentId||null, links:[], sectionIds:activeSec?[activeSec]:[], x:cx, y:cy, images:[] }; state.items.push(it); if(!root) root=it; node.children.forEach(c=>build(c,it.id)); })(formTree,null);
-  state.layoutDir='down'; if(root){ layeredLayout(true); selectNode(root.id); } else { commit(); renderAll(); } }
+  state.layoutDir='down'; if(root){ tidyTreeDown(root.id); selectNode(root.id); } else { commit(); renderAll(); } }
 function openDilna(){ if(dilna) return; selSet.clear();
   dilna={ state, sync, undo:undoStack, redo:redoStack, last:lastSnap, view:{...view}, sel:selId };
   state={ sections:dilna.state.sections.map(s=>({...s})), items:[], members:dilna.state.members, rev:0, layoutDir:'down' };
