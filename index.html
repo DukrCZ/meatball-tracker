@@ -268,18 +268,13 @@ create policy "open" on boards
     </div>
   </div>
   <div class="modal" id="treeModal" style="display:none">
-    <div class="card" style="width:460px;">
-      <h1>Strom z textu</h1>
-      <p>Napiš celý strom. <b>Odsazení = úroveň</b> (2 mezery nebo Tab). Cíl nahoře, jeho vstupy odsazené pod ním.</p>
-      <textarea id="treeText" spellcheck="false" style="width:100%; height:220px; border:1px solid var(--line); border-radius:9px; padding:10px; font-family:monospace; font-size:13px; resize:vertical; outline:none;" placeholder="EMBee
-  Arcane
-    Esoteric
-    Mysterious
-  Ethereal
-    Charmed
-    Eldritch"></textarea>
-      <div style="display:flex; gap:8px; margin-top:14px;">
+    <div class="card" style="width:480px; max-height:84vh; display:flex; flex-direction:column;">
+      <h1>Vytvořit strom</h1>
+      <p>Napiš cíl. U každý včely klikni <b>＋ vstupy</b> (= vyrobená ze 2 věcí) a napiš je. Rozklikni jak hluboko chceš.</p>
+      <div id="treeForm" style="overflow:auto; flex:1; margin:6px 0 4px;"></div>
+      <div style="display:flex; gap:8px; margin-top:12px;">
         <button class="btn primary" id="treeCreate">Vytvořit strom</button>
+        <button class="btn" id="treeReset">Vymazat</button>
         <button class="btn" id="treeCancel" style="margin-left:auto;">Zrušit</button>
       </div>
     </div>
@@ -737,10 +732,24 @@ function openTemplateMenu(e){ const m=$('#popMenu'); m.innerHTML=''; const hd=do
   for(const name of Object.keys(TEMPLATES)){ const b=document.createElement('button'); b.textContent=name; b.onclick=()=>{ insertTemplate(name); m.style.display='none'; }; m.appendChild(b); }
   const sp=document.createElement('div'); sp.className='msep'; m.appendChild(sp);
   const dl=document.createElement('button'); dl.textContent='🛠 Postavit strom v dílně'; dl.onclick=()=>{ m.style.display='none'; openDilna(); }; m.appendChild(dl);
-  const tt=document.createElement('button'); tt.textContent='📝 Strom z textu (napiš celý)'; tt.onclick=()=>{ m.style.display='none'; openTreeModal(); }; m.appendChild(tt);
+  const tt=document.createElement('button'); tt.textContent='✨ Vytvořit strom (klikací)'; tt.onclick=()=>{ m.style.display='none'; openTreeModal(); }; m.appendChild(tt);
   const bt=document.createElement('button'); bt.textContent='🐝 Prázdný breeding strom…'; bt.onclick=()=>{ m.style.display='none'; const lv=parseInt(prompt('Kolik pater stromu? (2–6)\n4=jako ta hra','4'),10); if(lv) insertBreedingTree(lv); }; m.appendChild(bt);
   showPopAt(m,e.clientX,e.clientY); }
-function openTreeModal(){ $('#treeText').value=''; $('#treeModal').style.display='flex'; setTimeout(()=>$('#treeText').focus(),0); }
+let formTree={name:'',children:[]};
+function openTreeModal(){ formTree={name:'',children:[]}; renderTreeForm(); $('#treeModal').style.display='flex'; setTimeout(()=>{ const i=$('#treeForm input'); if(i) i.focus(); },30); }
+function renderTreeForm(){ const box=$('#treeForm'); box.innerHTML=''; (function rec(node,depth){
+  const row=document.createElement('div'); row.style.cssText='display:flex; align-items:center; gap:6px; margin:4px 0; padding-left:'+(depth*20)+'px';
+  if(depth>0){ const dot=document.createElement('span'); dot.textContent='└'; dot.style.color='var(--muted)'; row.appendChild(dot); }
+  const inp=document.createElement('input'); inp.value=node.name; inp.placeholder=depth===0?'cíl (finální včela)':'vstup'; inp.style.cssText='flex:1; min-width:0; padding:7px 9px; border:1px solid var(--line); border-radius:7px; outline:none;'; inp.oninput=e=>node.name=e.target.value;
+  inp.onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); const ins=[...box.querySelectorAll('input')]; const k=ins.indexOf(e.target); if(ins[k+1]) ins[k+1].focus(); } };
+  row.appendChild(inp);
+  if(node.children.length){ const b=document.createElement('button'); b.className='btn'; b.textContent='✕'; b.title='zrušit vstupy'; b.style.padding='5px 9px'; b.onclick=()=>{ node.children=[]; renderTreeForm(); }; row.appendChild(b); }
+  else { const b=document.createElement('button'); b.className='btn'; b.textContent='＋ vstupy'; b.title='vyrobená ze 2 vstupů'; b.style.padding='5px 9px'; b.onclick=()=>{ node.children=[{name:'',children:[]},{name:'',children:[]}]; renderTreeForm(); const ins=box.querySelectorAll('input'); for(const x of ins){ if(!x.value){ x.focus(); break; } } }; row.appendChild(b); }
+  box.appendChild(row); node.children.forEach(c=>rec(c,depth+1));
+})(formTree,0); }
+function createTreeFromForm(){ const cx=(mapwrap.clientWidth/2-view.x)/view.k, cy=(mapwrap.clientHeight/2-view.y)/view.k; let root=null;
+  (function build(node,parentId){ const it={ id:uid(), text:(node.name||'').trim()||'?', status:'todo', assignees:[], parentId:parentId||null, links:[], sectionIds:activeSec?[activeSec]:[], x:cx, y:cy, images:[] }; state.items.push(it); if(!root) root=it; node.children.forEach(c=>build(c,it.id)); })(formTree,null);
+  state.layoutDir='down'; if(root){ tidyTreeDown(root.id); selectNode(root.id); } else { commit(); renderAll(); } }
 function openDilna(){ if(dilna) return; selSet.clear();
   dilna={ state, sync, undo:undoStack, redo:redoStack, last:lastSnap, view:{...view}, sel:selId };
   state={ sections:dilna.state.sections.map(s=>({...s})), items:[], members:dilna.state.members, rev:0, layoutDir:'down' };
@@ -897,7 +906,8 @@ $('#taskInput').addEventListener('keydown',e=>{ if(e.key==='Enter'&&e.target.val
 $('#btnFit').onclick=()=>fit(); $('#btnTidy').onclick=layeredLayout; $('#btnTpl').onclick=openTemplateMenu;
 $('#btnUndo').onclick=undo; $('#btnRedo').onclick=redo;
 $('#dilnaInsert').onclick=()=>dilnaExit(true); $('#dilnaCancel').onclick=()=>dilnaExit(false);
-$('#treeCreate').onclick=()=>{ buildTreeFromText($('#treeText').value); $('#treeModal').style.display='none'; };
+$('#treeCreate').onclick=()=>{ createTreeFromForm(); $('#treeModal').style.display='none'; };
+$('#treeReset').onclick=()=>{ formTree={name:'',children:[]}; renderTreeForm(); };
 $('#treeCancel').onclick=()=>$('#treeModal').style.display='none';
 $('#treeModal').addEventListener('pointerdown',e=>{ if(e.target.id==='treeModal') $('#treeModal').style.display='none'; });
 addEventListener('keydown',e=>{ const ae=document.activeElement; const editing=ae&&(ae.tagName==='INPUT'||ae.tagName==='TEXTAREA'||(ae.getAttribute&&ae.getAttribute('contenteditable')==='true'));
