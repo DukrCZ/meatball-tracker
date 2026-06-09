@@ -82,8 +82,6 @@
   .node.sel { outline:2px solid var(--accent); outline-offset:2px; } .node.dim { opacity:.18; }
   .node.selm { outline:2px solid #8ab4f8; outline-offset:2px; }
   .marquee { position:absolute; border:1px solid #8ab4f8; background:rgba(138,180,248,.14); z-index:6; pointer-events:none; border-radius:2px; }
-  .dilnabar { position:absolute; top:0; left:0; right:0; display:flex; align-items:center; gap:10px; padding:9px 14px; background:#34301c; border-bottom:2px solid #f7c600; color:#f7e9b0; font-size:13px; z-index:9; }
-  .dilnabar .dlt { flex:1; font-weight:600; } .dilnabar button { padding:6px 12px; }
   #dbSearch { width:100%; padding:9px 11px; border:1px solid var(--line); border-radius:9px; outline:none; font-size:14px; }
   #dbSearch:focus { border-color:var(--accent); }
   .dbrow { display:flex; align-items:center; gap:10px; width:100%; border:1px solid var(--line); background:var(--panel); color:var(--text); border-radius:8px; padding:7px 11px; margin-bottom:5px; font-size:13.5px; }
@@ -199,7 +197,6 @@
           <button data-sort="tree" class="on">Strom</button>
           <button data-sort="section">Sekce</button>
           <button data-sort="person">Lidi</button>
-          <button data-sort="status">Stav</button>
         </span>
       </h2>
       <div class="addrow">
@@ -220,7 +217,6 @@
           <button id="btnZoomIn">＋</button>
           <button id="btnZoomOut">－</button>
         </div>
-        <div class="dilnabar" id="dilnaBar" style="display:none"><span class="dlt">🛠 Dílna – stavíš koncept, hlavní mapy se to nedotkne</span><button class="btn primary" id="dilnaInsert">Vložit na hlavní mapu</button><button class="btn" id="dilnaCancel">Zrušit</button></div>
         <div id="world"></div>
         <svg class="edges" id="edges"></svg>
         <div class="maphint">2× klik = položka · ＋ rodiče/potomek · Shift+táhni = celá skupina · táhni z tečky = napojit · Ctrl+Z zpět</div>
@@ -255,23 +251,7 @@
     <div class="card" style="width:480px; max-height:86vh; overflow:auto;">
       <h1 style="display:flex;align-items:center;">🔗 Sdílení <button id="shClose" style="margin-left:auto;border:none;background:none;font-size:22px;cursor:pointer;color:var(--muted)">×</button></h1>
       <p id="shStatus" style="margin-bottom:14px;"></p>
-      <details style="margin-bottom:14px; font-size:13px;">
-        <summary style="cursor:pointer; font-weight:600;">📖 Jednorázové nastavení (klikni)</summary>
-        <ol style="padding-left:18px; line-height:1.55; color:var(--text);">
-          <li>Jdi na <b>supabase.com</b> → New project (free, bez karty).</li>
-          <li>Vlevo <b>SQL Editor</b> → vlož a spusť tohle:
-            <pre style="background:var(--bg); padding:8px; border-radius:8px; overflow:auto; font-size:12px;">create table if not exists boards(
-  room text primary key,
-  data jsonb,
-  stamp text);
-alter table boards enable row level security;
-create policy "open" on boards
-  for all using (true) with check (true);</pre></li>
-          <li>Vlevo <b>Project Settings → API</b>: zkopíruj <b>Project URL</b> a <b>anon public</b> klíč sem dolů.</li>
-          <li>Dej <b>Zapnout sdílení</b>, pak <b>Kopírovat zvací odkaz</b> a pošli ho bráchovi — on jen otevře link a vidí totéž.</li>
-        </ol>
-      </details>
-      <label style="font-size:12px;color:var(--muted)">Project URL</label>
+            <label style="font-size:12px;color:var(--muted)">Project URL</label>
       <input id="shUrl" placeholder="https://xxxx.supabase.co" style="width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:9px;margin:4px 0 10px;outline:none;">
       <label style="font-size:12px;color:var(--muted)">anon public key</label>
       <input id="shKey" placeholder="eyJhbGciOi…" style="width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:9px;margin:4px 0 10px;outline:none;">
@@ -373,7 +353,7 @@ function ryb2rgb(r,y,b){ const x0=l3(RC.c000,RC.c100,r),x1=l3(RC.c010,RC.c110,r)
 
 let me=null, room='meatball', sync=null;
 let state={ sections:[], items:[], members:[], rev:0 };
-let selId=null, linking=null, focusSec=null, activeSec=null, sortMode='tree', onlyDoing=false, selSet=new Set(), spaceDown=false, dilna=null;
+let selId=null, linking=null, focusSec=null, activeSec=null, sortMode='tree', onlyDoing=false, selSet=new Set(), spaceDown=false;
 let view={x:0,y:0,k:1}; const collapsed=new Set(); let fieldCanvas=null;
 const $=s=>document.querySelector(s);
 const world=$('#world'), edgesSvg=$('#edges'), mapwrap=$('#mapwrap');
@@ -383,7 +363,7 @@ function commit(){ if(lastSnap!==null){ undoStack.push(lastSnap); if(undoStack.l
   state.rev=(state.rev||0)+1; lastSnap=JSON.stringify(state); sync.save(structuredClone(state)); }
 function undo(){ if(!undoStack.length) return; redoStack.push(JSON.stringify(state)); const p=undoStack.pop(); state=JSON.parse(p); lastSnap=p; selId=null; state.rev=(state.rev||0)+1; sync.save(structuredClone(state)); renderAll(); }
 function redo(){ if(!redoStack.length) return; undoStack.push(JSON.stringify(state)); const n=redoStack.pop(); state=JSON.parse(n); lastSnap=n; selId=null; state.rev=(state.rev||0)+1; sync.save(structuredClone(state)); renderAll(); }
-function onRemote(s){ if(!s||dilna) return; if(JSON.stringify(s)===JSON.stringify(state)) return; state=s; lastSnap=JSON.stringify(s); renderAll(); }
+function onRemote(s){ if(!s) return; if(JSON.stringify(s)===JSON.stringify(state)) return; state=s; lastSnap=JSON.stringify(s); renderAll(); }
 
 const sectionById=id=>state.sections.find(s=>s.id===id);
 const itemById=id=>state.items.find(i=>i.id===id);
@@ -465,8 +445,6 @@ function renderTasks(){
   let groups=[];
   if(sortMode==='section'){ groups=[...state.sections.map(s=>({key:s.id,label:s.name,icon:s.icon,col:s.color,items:[]})),{key:'_n',label:'Bez sekce',icon:'📥',col:'#9aa0a6',items:[]}];
     for(const it of state.items){ const ids=itemSecIds(it); if(!ids.length){ groups[groups.length-1].items.push(it); continue; } for(const id of ids){ const g=groups.find(g=>g.key===id); if(g) g.items.push(it); } } }
-  else if(sortMode==='status'){ groups=STATE_CYCLE.map(s=>({key:s,label:STATES[s].lbl,icon:STATES[s].mark||'○',col:cssCol(STATES[s].color),items:[]}));
-    for(const it of state.items) (groups.find(g=>g.key===it.status)||groups[0]).items.push(it); }
   else { groups=state.members.map(m=>({key:m.name,label:m.name,icon:'🙂',col:m.color,items:[]})); groups.push({key:'_u',label:'Nepřiřazeno',icon:'·',col:'#9aa0a6',items:[]});
     for(const it of state.items){ if(!it.assignees.length) groups[groups.length-1].items.push(it); else for(const a of it.assignees)(groups.find(g=>g.key===a)||groups[groups.length-1]).items.push(it); } }
   for(const g of groups){ if(!g.items.length) continue;
@@ -534,7 +512,6 @@ function openNodeMenu(e,id){ const it=itemById(id); if(!it) return; const m=$('#
   add('Přidat pod-položku (potomek →)',()=>{ m.style.display='none'; const c=addItem({parentId:id}); editOnMap(c.id); });
   add('Přidat rodiče (← vstup)',()=>{ m.style.display='none'; addParentItem(id); });
   add('Šablona na tuhle položku…',()=>{ m.style.display='none'; openTemplateMenu(e); });
-  add('Vygenerovat rodokmen (strom)…',()=>{ m.style.display='none'; const lv=parseInt(prompt('Kolik pater rodokmenu nad touhle položkou? (2–6)\n4 = jako ta hra','4'),10); if(lv) generateBreedingTree(id,lv); });
   add('Materiál & poznámky',()=>{ m.style.display='none'; openDetail(id); });
   hd('Stav');
   for(const k of STATE_CYCLE){ const s=STATES[k]; const b=document.createElement('button'); b.innerHTML=`<span class="sw" style="background:${cssCol(s.color)}"></span>${s.lbl}${it.status===k?'  ✓':''}`; b.onclick=()=>{ if(k==='doing'&&it.status!=='doing') it.doingTs=Date.now(); it.status=k; commit(); renderAll(); m.style.display='none'; }; m.appendChild(b); }
@@ -747,41 +724,15 @@ function insertTemplate(name){ const spec=TEMPLATES[name]; if(!spec) return;
     commit(); renderAll(); selectNode(target.id); return; }
   const cx=(mapwrap.clientWidth/2-view.x)/view.k, cy=(mapwrap.clientHeight/2-view.y)/view.k;
   const root=addTpl({t:spec.t,c:children},null,cx,cy); commit(); renderAll(); selectNode(root.id); }
-function insertBreedingTree(levels){ levels=Math.max(2,Math.min(6,levels||4));
-  const cx=(mapwrap.clientWidth/2-view.x)/view.k, cyTop=(mapwrap.clientHeight/2-view.y)/view.k - levels*70;
-  const spacing=112, vgap=120; const rows=[];
-  for(let L=0;L<levels;L++){ rows[L]=[]; const count=2**L; for(let i=0;i<count;i++) rows[L].push({ id:uid(), text:'?', status:'todo', assignees:[], parentId:null, links:[], sectionIds:activeSec?[activeSec]:[], x:0, y:cyTop+L*vgap, images:[] }); }
-  const leaves=rows[levels-1]; const startX=cx-(leaves.length-1)*spacing/2; leaves.forEach((n,i)=>n.x=startX+i*spacing);
-  for(let L=levels-2;L>=0;L--) rows[L].forEach((n,i)=>{ const a=rows[L+1][2*i], b=rows[L+1][2*i+1]; n.x=(a.x+b.x)/2; });
-  for(let L=0;L<levels-1;L++) rows[L].forEach((n,i)=>{ rows[L+1][2*i].parentId=n.id; rows[L+1][2*i+1].parentId=n.id; });
-  rows.flat().forEach(n=>state.items.push(n)); state.layoutDir='down'; commit(); renderAll(); selectNode(rows[0][0].id); fit(); }
-function generateBreedingTree(rootId,levels){ const root=itemById(rootId); if(!root) return; levels=Math.max(2,Math.min(6,levels||4));
-  const spacing=112, vgap=120; const rows=[[root]];
-  for(let L=1;L<levels;L++){ rows[L]=[]; for(let i=0;i<2**L;i++) rows[L].push({ id:uid(), text:'?', status:'todo', assignees:[], parentId:null, links:[], sectionIds:[...itemSecIds(root)], x:0, y:root.y+L*vgap, images:[] }); }
-  const leaves=rows[levels-1]; const startX=root.x-(leaves.length-1)*spacing/2; leaves.forEach((n,i)=>n.x=startX+i*spacing);
-  for(let L=levels-2;L>=1;L--) rows[L].forEach((n,i)=>{ n.x=(rows[L+1][2*i].x+rows[L+1][2*i+1].x)/2; });
-  for(let L=0;L<levels-1;L++) rows[L].forEach((n,i)=>{ rows[L+1][2*i].parentId=n.id; rows[L+1][2*i+1].parentId=n.id; rows[L+1][2*i].links=[]; rows[L+1][2*i+1].links=[]; });
-  rows.slice(1).flat().forEach(n=>state.items.push(n)); state.layoutDir='down'; commit(); renderAll(); selectNode(root.id); fit(); }
 function tidyTreeDown(rootId){ const root=itemById(rootId); if(!root) return; const seen=new Set(); const vgap=120,hgap=132; let cursor=0; const bx=root.x, by=root.y;
   (function place(id,depth){ if(seen.has(id)) return; seen.add(id); const it=itemById(id); const kids=childrenOf(id).filter(k=>!seen.has(k.id)); it.y=by+depth*vgap;
     if(!kids.length){ it.x=bx+cursor*hgap; cursor++; } else { kids.forEach(k=>place(k.id,depth+1)); const kx=kids.map(k=>itemById(k.id).x); it.x=(Math.min(...kx)+Math.max(...kx))/2; } })(rootId,0);
   state.layoutDir='down'; commit(); renderAll(); fit(); }
-function buildTreeFromText(text){ const lines=text.split('\n').filter(l=>l.trim()); if(!lines.length) return;
-  const cx=(mapwrap.clientWidth/2-view.x)/view.k, cy=(mapwrap.clientHeight/2-view.y)/view.k;
-  const stack=[]; let firstRoot=null;
-  for(const line of lines){ const ind=(line.match(/^[\t ]*/)[0]).replace(/\t/g,'  ').length; const depth=Math.floor(ind/2);
-    const t=line.trim().replace(/^[-*+•]\s*/,''); if(!t) continue;
-    const parentId=depth>0?(stack[depth-1]||null):null;
-    const it={ id:uid(), text:t, status:'todo', assignees:[], parentId:parentId, links:[], sectionIds:activeSec?[activeSec]:[], x:cx, y:cy, images:[] };
-    state.items.push(it); stack[depth]=it.id; stack.length=depth+1; if(depth===0&&!firstRoot) firstRoot=it.id; }
-  state.layoutDir='down'; if(firstRoot){ tidyTreeDown(firstRoot); selectNode(firstRoot); } else { commit(); renderAll(); fit(); } }
 function openTemplateMenu(e){ const m=$('#popMenu'); m.innerHTML=''; const hd=document.createElement('div'); hd.className='mhd'; hd.textContent='Vložit šablonu'; m.appendChild(hd);
   for(const name of Object.keys(TEMPLATES)){ const b=document.createElement('button'); b.textContent=name; b.onclick=()=>{ insertTemplate(name); m.style.display='none'; }; m.appendChild(b); }
   const sp=document.createElement('div'); sp.className='msep'; m.appendChild(sp);
   const db=document.createElement('button'); db.textContent='🐝 Strom z databáze (auto)'; db.onclick=()=>{ m.style.display='none'; openDbModal(); }; m.appendChild(db);
-  const dl=document.createElement('button'); dl.textContent='🛠 Postavit strom v dílně'; dl.onclick=()=>{ m.style.display='none'; openDilna(); }; m.appendChild(dl);
   const tt=document.createElement('button'); tt.textContent='✨ Vytvořit strom (klikací)'; tt.onclick=()=>{ m.style.display='none'; openTreeModal(); }; m.appendChild(tt);
-  const bt=document.createElement('button'); bt.textContent='🐝 Prázdný breeding strom…'; bt.onclick=()=>{ m.style.display='none'; const lv=parseInt(prompt('Kolik pater stromu? (2–6)\n4=jako ta hra','4'),10); if(lv) insertBreedingTree(lv); }; m.appendChild(bt);
   showPopAt(m,e.clientX,e.clientY); }
 let formTree={name:'',children:[]};
 function openTreeModal(){ formTree={name:'',children:[]}; renderTreeForm(); $('#treeModal').style.display='flex'; setTimeout(()=>{ const i=$('#treeForm input'); if(i) i.focus(); },30); }
@@ -849,26 +800,12 @@ function renderOutline(){ const box=$('#dbOutline'); if(!box) return; box.innerH
   })(dbCurrentKey, dbCurrentKey, 0, new Set());
   $('#dbPrevInfo').textContent=`${beeName(dbCurrentKey)} · ${need} k vyšlechtění · klik na jméno = rozbal · ✓ = mám (ubyde)`; }
 function buildFromDB(targetKey){ if(!beeDB) return; const cx=(mapwrap.clientWidth/2-view.x)/view.k, cy=(mapwrap.clientHeight/2-view.y)/view.k; let count=0; const CAP=400; let rootId=null; const owned=new Set(state.owned||[]);
-  (function build(key,anc,parentId){ if(count>=CAP) return; const own=owned.has(key); const it={id:uid(),text:beeName(key),status:own?'done':'todo',assignees:[],parentId:parentId||null,links:[],sectionIds:activeSec?[activeSec]:[],x:cx,y:cy,images:[]}; state.items.push(it); count++; if(!rootId) rootId=it.id;
+  (function build(key,anc,parentId){ if(count>=CAP) return; const own=owned.has(key); const it={id:uid(),text:beeName(key),status:own?'done':'todo',assignees:[],parentId:parentId||null,links:[],sectionIds:[],x:cx,y:cy,images:[]}; state.items.push(it); count++; if(!rootId) rootId=it.id;
     it.bee=key; const r=beeDB.recipes[key]; if(r&&!own&&!anc.has(key)){ const a2=new Set(anc); a2.add(key); for(const p of r) build(p,a2,it.id); } })(targetKey,new Set(),null);
   state.layoutDir='down'; tidyTreeDown(rootId); selectNode(rootId); }
 function createTreeFromForm(){ const cx=(mapwrap.clientWidth/2-view.x)/view.k, cy=(mapwrap.clientHeight/2-view.y)/view.k; let root=null;
   (function build(node,parentId){ const it={ id:uid(), text:(node.name||'').trim()||'?', status:'todo', assignees:[], parentId:parentId||null, links:[], sectionIds:activeSec?[activeSec]:[], x:cx, y:cy, images:[] }; state.items.push(it); if(!root) root=it; node.children.forEach(c=>build(c,it.id)); })(formTree,null);
   state.layoutDir='down'; if(root){ tidyTreeDown(root.id); selectNode(root.id); } else { commit(); renderAll(); } }
-function openDilna(){ if(dilna) return; selSet.clear();
-  dilna={ state, sync, undo:undoStack, redo:redoStack, last:lastSnap, view:{...view}, sel:selId };
-  state={ sections:dilna.state.sections.map(s=>({...s})), items:[], members:dilna.state.members, rev:0, layoutDir:'down' };
-  sync={ save(){}, subscribe(){}, stop(){} }; undoStack=[]; redoStack=[]; lastSnap=null; selId=null;
-  view={ x:mapwrap.clientWidth/2, y:140, k:1 };
-  $('#dilnaBar').style.display='flex'; renderAll(); }
-function dilnaExit(insert){ if(!dilna) return; const draft=state.items;
-  if(insert && draft.length){ const real=dilna.state;
-    const xs=draft.map(i=>i.x),ys=draft.map(i=>i.y); const dcx=(Math.min(...xs)+Math.max(...xs))/2, dcy=(Math.min(...ys)+Math.max(...ys))/2;
-    const tx=(mapwrap.clientWidth/2-dilna.view.x)/dilna.view.k, ty=(mapwrap.clientHeight/2-dilna.view.y)/dilna.view.k;
-    const dx=tx-dcx, dy=ty-dcy; draft.forEach(it=>{ it.x+=dx; it.y+=dy; });
-    real.items.push(...draft); real.layoutDir='down'; }
-  state=dilna.state; sync=dilna.sync; undoStack=dilna.undo; redoStack=dilna.redo; lastSnap=dilna.last; view=dilna.view; selId=dilna.sel; const ins=insert; dilna=null;
-  $('#dilnaBar').style.display='none'; if(ins) commit(); renderAll(); }
 
 /* ---------- pan/zoom/keys ---------- */
 mapwrap.addEventListener('pointerdown',e=>{ if(e.target.closest('.node')||e.target.classList.contains('nport')) return;
@@ -892,7 +829,6 @@ mapwrap.addEventListener('contextmenu',e=>{ if(e.target.closest('.node')) return
   add('Nová položka',()=>{ m.style.display='none'; const c=addItem({x:w.x,y:w.y}); editOnMap(c.id); });
   const hd=document.createElement('div'); hd.className='mhd'; hd.textContent='Šablona'; m.appendChild(hd);
   for(const name of Object.keys(TEMPLATES)){ add(name,()=>{ m.style.display='none'; insertTemplate(name); }); }
-  add('🐝 Breeding strom…',()=>{ m.style.display='none'; const lv=parseInt(prompt('Kolik pater? (2–6)','4'),10); if(lv) insertBreedingTree(lv); });
   const sp=document.createElement('div'); sp.className='msep'; m.appendChild(sp);
   add('Rozložit (auto)',()=>{ m.style.display='none'; layeredLayout(); });
   add('Vycentrovat',()=>{ m.style.display='none'; fit(); });
@@ -1010,7 +946,6 @@ function rebuildSectionSelect(){ const sel=$('#taskSection'); const cur=sel.valu
 $('#taskInput').addEventListener('keydown',e=>{ if(e.key==='Enter'&&e.target.value.trim()){ const sv=$('#taskSection').value; addItem({text:e.target.value.trim(),sectionIds:sv?[sv]:[]}); e.target.value=''; } });
 $('#btnFit').onclick=()=>fit(); $('#btnTidy').onclick=layeredLayout; $('#btnTpl').onclick=openTemplateMenu;
 $('#btnUndo').onclick=undo; $('#btnRedo').onclick=redo;
-$('#dilnaInsert').onclick=()=>dilnaExit(true); $('#dilnaCancel').onclick=()=>dilnaExit(false);
 $('#dbSearch').oninput=e=>renderDbList(e.target.value); $('#dbCancel').onclick=()=>$('#dbModal').style.display='none';
 $('#dbBack').onclick=showDbBrowse;
 $('#dbInsert').onclick=()=>{ if(dbCurrentKey){ buildFromDB(dbCurrentKey); } $('#dbModal').style.display='none'; };
