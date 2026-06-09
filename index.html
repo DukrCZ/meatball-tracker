@@ -1,0 +1,792 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Meatball Tracker</title>
+<style>
+  :root {
+    --bg:#1d1e21; --panel:#27292d; --line:#3a3d42;
+    --text:#e8eaed; --muted:#9aa0a6; --accent:#8ab4f8;
+    --shadow:0 1px 3px rgba(0,0,0,.45), 0 4px 12px rgba(0,0,0,.35);
+    --st-todo:#9aa0a6; --st-doing:#f0934e; --st-done:#46c46a; --st-stopped:#ef5350;
+    --canvas:#161718; --grid:#2a2c31; --hover:#303338; --sel:rgba(138,180,248,.2); --donebg:rgba(70,196,106,.14); --hint:rgba(39,41,45,.92);
+  }
+  input, textarea, select { background:var(--panel); color:var(--text); }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { margin:0; height:100%; overflow:hidden; font-family:"Segoe UI",Roboto,system-ui,sans-serif; background:var(--bg); color:var(--text); }
+  body { display:flex; flex-direction:column; }
+  .topbar { display:flex; align-items:center; gap:12px; padding:8px 14px; background:var(--panel); border-bottom:1px solid var(--line); box-shadow:var(--shadow); z-index:30; }
+  .brand { font-weight:600; font-size:17px; } .brand span { color:var(--st-doing); }
+  .spacer { flex:1; } .who { display:flex; align-items:center; gap:6px; font-size:13px; color:var(--muted); }
+  .presence { display:flex; gap:5px; }
+  .pchip { display:flex; align-items:center; gap:5px; padding:3px 9px; border-radius:20px; background:var(--bg); font-size:12px; }
+  .pchip .pdot { width:8px; height:8px; border-radius:50%; }
+  .btn { border:1px solid var(--line); background:var(--panel); color:var(--text); padding:6px 12px; border-radius:8px; font-size:13px; cursor:pointer; } .btn:hover { background:var(--hover); }
+  .btn.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .main { flex:1; display:flex; min-height:0; }
+  .side { width:344px; min-width:284px; background:var(--panel); border-right:1px solid var(--line); display:flex; flex-direction:column; }
+  .side h2 { font-size:13px; text-transform:uppercase; letter-spacing:.6px; color:var(--muted); margin:0; padding:14px 16px 6px; display:flex; align-items:center; gap:8px; }
+  .sortbtns { margin-left:auto; display:flex; gap:4px; }
+  .sortbtns button { border:1px solid var(--line); background:var(--panel); border-radius:7px; font-size:11px; padding:2px 8px; cursor:pointer; color:var(--muted); }
+  .sortbtns button.on { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .nowbtn { margin-left:10px; border:1px solid var(--line); background:var(--panel); border-radius:7px; font-size:11px; padding:2px 9px; cursor:pointer; color:var(--muted); }
+  .nowbtn.on { background:var(--st-doing); color:#fff; border-color:var(--st-doing); }
+  .addrow { display:flex; gap:8px; padding:6px 14px 10px; }
+  .addrow input { flex:1; padding:9px 11px; border:1px solid var(--line); border-radius:8px; font-size:14px; outline:none; min-width:0; }
+  .addrow input:focus { border-color:var(--accent); }
+  .addrow select { border:1px solid var(--line); border-radius:8px; padding:0 6px; font-size:13px; background:var(--panel); max-width:130px; }
+  .tasks { flex:1; overflow:auto; padding:0 8px 14px; }
+
+  .grp { margin:2px 0 8px; }
+  .grphead { display:flex; align-items:center; gap:8px; padding:7px 8px; cursor:pointer; border-radius:8px; }
+  .grphead:hover { background:var(--bg); }
+  .grphead .gbar { width:4px; align-self:stretch; border-radius:3px; min-height:16px; }
+  .grphead .gname { font-weight:600; font-size:13px; } .grphead .gcount { font-size:11px; color:var(--muted); background:var(--bg); padding:1px 7px; border-radius:20px; }
+  .grphead .gcar { margin-left:auto; color:var(--muted); font-size:11px; }
+
+  .trow { display:flex; align-items:center; gap:7px; padding:6px 7px; border-radius:9px; margin:2px 0; cursor:pointer; }
+  .trow:hover { background:var(--hover); }
+  .trow.sel { background:var(--sel); }
+  .trow .twist { width:13px; text-align:center; color:var(--muted); font-size:10px; flex:none; }
+  .trow .stbox { width:17px; height:17px; border-radius:5px; border:2px solid var(--st-todo); cursor:pointer; flex:none; display:flex; align-items:center; justify-content:center; font-size:10px; color:#fff; }
+  .trow .tcol { width:7px; height:17px; border-radius:3px; flex:none; }
+  .trow .ttxt { flex:1; font-size:13.5px; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .trow.done .ttxt { text-decoration:line-through; color:var(--muted); } .trow.stopped .ttxt { color:var(--muted); }
+  .trow .tav { display:flex; gap:2px; }
+  .av { width:17px; height:17px; border-radius:50%; font-size:9px; color:#fff; display:flex; align-items:center; justify-content:center; font-weight:600; }
+  .trow .tbtn { opacity:0; border:none; background:none; cursor:pointer; font-size:13px; color:var(--muted); padding:0 2px; flex:none; }
+  .trow:hover .tbtn { opacity:.75; } .trow .tbtn:hover { opacity:1; }
+
+  .popmenu { position:fixed; z-index:120; background:#2e3137; border:1px solid #474b52; border-radius:12px; box-shadow:0 10px 34px rgba(0,0,0,.55); padding:6px; display:none; min-width:190px; color:#eceef1; }
+  .popmenu button { display:flex; align-items:center; gap:10px; width:100%; border:none; background:none; padding:8px 12px; border-radius:8px; cursor:pointer; font-size:13.5px; text-align:left; color:#eceef1; }
+  .popmenu button:hover { background:#3d424a; }
+  .popmenu .sw { width:13px; height:13px; border-radius:50%; flex:none; box-shadow:0 0 0 1px rgba(255,255,255,.18); }
+  .popmenu .mhd { padding:8px 12px 3px; font-size:10.5px; letter-spacing:.5px; text-transform:uppercase; color:#9aa0a6; }
+  .popmenu .msep { height:1px; background:#474b52; margin:5px 8px; }
+  .popmenu .danger { color:#ff6b66; }
+  .popmenu .pal { display:flex; gap:7px; padding:6px 10px; flex-wrap:wrap; max-width:198px; }
+  .popmenu .pal .c { width:22px; height:22px; border-radius:50%; cursor:pointer; box-shadow:0 0 0 1px rgba(255,255,255,.25); }
+
+  .secbar { display:flex; align-items:center; gap:7px; padding:8px 12px; background:var(--panel); border-bottom:1px solid var(--line); overflow-x:auto; z-index:6; }
+  .chip { display:flex; align-items:center; gap:6px; padding:5px 11px; border-radius:20px; font-size:12.5px; cursor:pointer; white-space:nowrap; border:2px solid transparent; background:var(--bg); }
+  .chip .cdot { width:10px; height:10px; border-radius:50%; } .chip.focus { border-color:#202124; }
+  .chip .cedit { opacity:0; font-size:11px; } .chip:hover .cedit { opacity:.6; }
+  .chip.addsec { color:var(--muted); border:1px dashed var(--line); background:var(--panel); }
+
+  .mapwrap { flex:1; position:relative; overflow:hidden; background:var(--canvas); background-image:radial-gradient(circle,var(--grid) 1px,transparent 1px); background-size:26px 26px; }
+  #world { position:absolute; left:0; top:0; transform-origin:0 0; will-change:transform; }
+  canvas.field { position:absolute; pointer-events:none; z-index:0; mix-blend-mode:screen; }
+  svg.edges { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; z-index:1; }
+  .node { position:absolute; min-width:84px; max-width:230px; padding:9px 12px; background:var(--panel); color:var(--text); border:2px solid var(--accent); border-radius:12px; box-shadow:var(--shadow); font-size:14px; cursor:grab; user-select:none; transform:translate(-50%,-50%); z-index:2; transition:opacity .15s; display:flex; flex-direction:column; justify-content:center; }
+  .node.sel { outline:2px solid var(--accent); outline-offset:2px; } .node.dim { opacity:.18; }
+  .node.done { background:var(--donebg); } .node.stopped { opacity:.55; }
+  .node.flash { animation:flash 1.1s ease; }
+  @keyframes flash { 0%,100%{box-shadow:var(--shadow);} 30%{box-shadow:0 0 0 6px rgba(26,115,232,.4);} }
+  .node .nrow { display:flex; align-items:center; gap:7px; }
+  .node .nst { width:15px; height:15px; border-radius:5px; border:2px solid var(--st-todo); flex:none; cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:9px; color:#fff; }
+  .node .ntxt { outline:none; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:20px; flex:1; } .node .ntxt[contenteditable="true"] { overflow:visible; text-overflow:clip; } .node.done .ntxt { text-decoration:line-through; color:var(--muted); }
+  .node .nclose { position:absolute; top:-9px; right:-9px; width:20px; height:20px; border-radius:50%; background:var(--panel); border:1px solid var(--line); cursor:pointer; font-size:12px; line-height:18px; text-align:center; display:none; z-index:3; }
+  .node:hover .nclose, .node.sel .nclose { display:block; }
+  .node .nport { position:absolute; width:14px; height:14px; border-radius:50%; background:var(--accent); right:-8px; top:50%; transform:translateY(-50%); cursor:crosshair; opacity:0; border:2px solid #fff; }
+  .node:hover .nport, .node.sel .nport { opacity:1; }
+  .node .nadd { position:absolute; right:-12px; bottom:-12px; width:22px; height:22px; border-radius:50%; background:var(--accent); color:#fff; border:2px solid #fff; cursor:pointer; font-size:14px; line-height:18px; text-align:center; display:none; z-index:3; box-shadow:var(--shadow); }
+  .node:hover .nadd, .node.sel .nadd { display:block; }
+  .node .nresize { position:absolute; right:-6px; bottom:-6px; width:14px; height:14px; border-radius:3px; background:var(--panel); border:1px solid var(--line); cursor:nwse-resize; display:none; z-index:3; }
+  .trow .tcol { cursor:pointer; }
+  .node:hover .nresize, .node.sel .nresize { display:block; }
+
+  .toolbar { position:absolute; top:12px; left:12px; display:flex; gap:5px; background:#2e3137; border:1px solid #4b4f57; border-radius:10px; padding:5px; box-shadow:0 4px 16px rgba(0,0,0,.5); z-index:5; }
+  .toolbar button { border:1px solid transparent; background:none; cursor:pointer; padding:6px 11px; border-radius:7px; font-size:13px; font-weight:500; color:#eceef1; }
+  .toolbar button:hover { background:#3d424a; border-color:#565b63; }
+  .maphint { position:absolute; bottom:12px; left:50%; transform:translateX(-50%); font-size:12px; color:var(--muted); background:var(--hint); padding:5px 12px; border-radius:20px; pointer-events:none; z-index:5; }
+
+  .drawer { position:absolute; top:0; right:0; width:336px; height:100%; background:var(--panel); border-left:1px solid var(--line); box-shadow:-4px 0 16px rgba(0,0,0,.08); z-index:8; display:flex; flex-direction:column; transform:translateX(100%); transition:transform .18s; }
+  .drawer.open { transform:none; }
+  .dhead { display:flex; align-items:center; gap:8px; padding:12px 14px; border-bottom:1px solid var(--line); font-weight:600; font-size:15px; }
+  .dhead #dClose { margin-left:auto; border:none; background:none; font-size:20px; cursor:pointer; color:var(--muted); }
+  .dbody { padding:6px 14px 16px; overflow:auto; flex:1; }
+  .dbody label { font-size:12px; color:var(--muted); display:block; margin:12px 0 5px; }
+  #dNotes { width:100%; min-height:84px; border:1px solid var(--line); border-radius:9px; padding:9px; font:inherit; font-size:13px; resize:vertical; outline:none; }
+  #dNotes:focus { border-color:var(--accent); }
+  .mathead { display:flex; align-items:center; justify-content:space-between; margin-top:12px; }
+  .mathead label { margin:0; } .mathead .mul { font-size:12px; color:var(--muted); display:flex; align-items:center; gap:5px; }
+  .multin { width:48px; border:1px solid var(--line); border-radius:7px; padding:3px 6px; font-size:13px; text-align:center; outline:none; }
+  .matrow { display:flex; gap:6px; align-items:center; margin-bottom:6px; }
+  .matrow .mn { flex:1; border:1px solid var(--line); border-radius:8px; padding:7px 9px; font-size:13px; outline:none; min-width:0; }
+  .matrow .mq { width:70px; border:1px solid var(--line); border-radius:8px; padding:7px 8px; font-size:13px; text-align:right; outline:none; }
+  .matrow .mn:focus,.matrow .mq:focus { border-color:var(--accent); }
+  .matrow .mqv { width:52px; font-size:11px; color:var(--muted); text-align:right; }
+  .matrow .mdel { border:none; background:none; cursor:pointer; color:var(--muted); font-size:15px; }
+  .dtotal { margin-top:12px; padding-top:10px; border-top:1px solid var(--line); font-size:14px; font-weight:600; }
+  .dhint { font-size:11px; color:var(--muted); margin-top:4px; }
+  .blogrow { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px 4px; border-bottom:1px solid var(--line); font-size:14px; }
+  .blogrow .bn { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } .blogrow .bq { font-weight:600; flex:none; }
+  .blogrow .bsrc { font-size:11px; color:var(--muted); }
+  .dimgs { display:flex; flex-wrap:wrap; gap:7px; margin-bottom:4px; }
+  .dimgs .th { position:relative; width:72px; height:72px; border-radius:8px; overflow:hidden; border:1px solid var(--line); cursor:zoom-in; }
+  .dimgs .th img { width:100%; height:100%; object-fit:cover; }
+  .dimgs .th .x { position:absolute; top:2px; right:2px; width:18px; height:18px; border-radius:50%; background:rgba(0,0,0,.55); color:#fff; font-size:12px; line-height:18px; text-align:center; cursor:pointer; }
+  .lightbox { position:fixed; inset:0; background:rgba(0,0,0,.82); display:flex; align-items:center; justify-content:center; z-index:300; cursor:zoom-out; }
+  .lightbox img { max-width:92%; max-height:92%; border-radius:8px; }
+  .node .nthumb.cover { width:100%; max-height:140px; object-fit:cover; border-radius:8px; margin-bottom:3px; display:block; cursor:zoom-in; }
+  .node .ncap { font-size:10px; color:var(--muted); line-height:1.25; margin-bottom:5px; white-space:normal; overflow-wrap:anywhere; }
+  .node .ncap.cover { text-align:center; }
+  .node .nimgs { display:grid; gap:5px; margin-bottom:6px; }
+  .node .ncell { display:flex; flex-direction:column; gap:2px; min-width:0; }
+  .node .nimgs .nthumb { width:100%; height:74px; object-fit:cover; border-radius:6px; cursor:zoom-in; }
+  .node .nnotes { font-size:11.5px; color:var(--muted); line-height:1.35; margin:4px 0 2px; white-space:pre-wrap; overflow-wrap:anywhere; max-height:130px; overflow:auto; cursor:text; }
+  .node .ncell .ncap { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-bottom:0; }
+  .node .nmore { height:74px; border-radius:6px; background:var(--bg); display:flex; align-items:center; justify-content:center; font-size:12px; color:var(--muted); }
+  .dimgs { align-items:flex-start; }
+  .dimgs .thwrap { display:flex; flex-direction:column; gap:3px; cursor:grab; width:72px; }
+  .dimgs .thwrap .cap { width:72px; font-size:10px; padding:3px 5px; border:1px solid var(--line); border-radius:6px; outline:none; }
+  .dimgs .thwrap .cap:focus { border-color:var(--accent); }
+  .dimgs.drop { outline:2px dashed var(--accent); outline-offset:3px; }
+  .dimgs .th { cursor:grab; }
+  .dimgs .th.addimg { display:flex; align-items:center; justify-content:center; font-size:22px; color:var(--muted); border:1px dashed var(--line); cursor:pointer; background:none; }
+  .dimgs .th.addimg:hover { color:var(--accent); border-color:var(--accent); }
+  .lightbox .lbnav { position:absolute; top:50%; transform:translateY(-50%); font-size:46px; line-height:1; color:#fff; cursor:pointer; padding:0 18px; opacity:.7; user-select:none; }
+  .lightbox .lbnav:hover { opacity:1; } .lightbox .lbprev { left:6px; } .lightbox .lbnext { right:6px; }
+  .lightbox .lbcount { position:absolute; bottom:18px; left:50%; transform:translateX(-50%); color:#fff; font-size:13px; background:rgba(0,0,0,.5); padding:3px 11px; border-radius:12px; }
+  .modal { position:fixed; inset:0; background:rgba(32,33,36,.45); display:flex; align-items:center; justify-content:center; z-index:200; }
+  .card { background:var(--panel); border-radius:16px; padding:26px 28px; width:360px; box-shadow:0 10px 40px rgba(0,0,0,.25); }
+  .card h1 { margin:0 0 4px; font-size:21px; } .card p { margin:0 0 18px; color:var(--muted); font-size:13px; }
+  .card label { font-size:12px; color:var(--muted); display:block; margin:12px 0 5px; }
+  .card input { width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:9px; font-size:15px; outline:none; }
+  .card input:focus { border-color:var(--accent); }
+  .colors { display:flex; gap:9px; margin-top:8px; } .colors .c { width:30px; height:30px; border-radius:50%; cursor:pointer; border:3px solid transparent; } .colors .c.sel { border-color:#202124; }
+  .card .btn.primary { width:100%; margin-top:20px; padding:11px; font-size:15px; }
+</style>
+</head>
+<body>
+  <div class="topbar">
+    <div class="brand">🍝 Meatball <span>Tracker</span></div>
+    <div class="who" id="roomInfo"></div>
+    <div class="spacer"></div>
+    <div class="presence" id="presence"></div>
+    <button class="btn" id="btnBlog">Build log</button>
+    <button class="btn" id="btnShare">Sdílet</button>
+  </div>
+  <div class="main">
+    <aside class="side">
+      <h2>Položky
+        <button id="nowBtn" class="nowbtn" title="Jen co se teď dělá (kdo co dělá, v pořadí jak se kliklo)">Teď</button>
+        <span class="sortbtns" id="sortBtns">
+          <button data-sort="tree" class="on">Strom</button>
+          <button data-sort="section">Sekce</button>
+          <button data-sort="person">Lidi</button>
+          <button data-sort="status">Stav</button>
+        </span>
+      </h2>
+      <div class="addrow">
+        <input id="taskInput" placeholder="Nová položka… (Enter)">
+        <select id="taskSection" title="Sekce"></select>
+      </div>
+      <div class="tasks" id="tasks"></div>
+    </aside>
+    <div style="flex:1; display:flex; flex-direction:column; min-width:0;">
+      <div class="secbar" id="secbar"></div>
+      <div class="mapwrap" id="mapwrap">
+        <div class="toolbar">
+          <button id="btnFit" title="Vycentrovat">Fit</button>
+          <button id="btnTidy" title="Auto-rozložení (vrstvy, min. křížení)">Rozložit</button>
+          <button id="btnTpl" title="Vložit šablonu myšlenky">Šablona</button>
+          <button id="btnZoomIn">＋</button>
+          <button id="btnZoomOut">－</button>
+        </div>
+        <div id="world"></div>
+        <svg class="edges" id="edges"></svg>
+        <div class="maphint">2× klik = položka · ＋ na bublině = napojená pod-položka · Tab=potomek · Enter=sourozenec · táhni z tečky = napojit · Del=smazat</div>
+        <div class="drawer" id="detail">
+          <div class="dhead"><span id="dTitle"></span><button id="dClose">×</button></div>
+          <div class="dbody">
+            <label>📓 Poznámky / notebook</label>
+            <textarea id="dNotes" placeholder="Postup, recept, odkazy, co kde je…"></textarea>
+            <label>Obrázky <span style="font-weight:400;text-transform:none">— přetáhni / Ctrl+V / ＋ · mřížka v uzlu: <select id="dCols" style="padding:2px 4px;border:1px solid var(--line);border-radius:6px;font-size:12px"><option value="">auto</option><option value="1">1</option><option value="2">2</option><option value="3">3</option></select></span></label>
+            <div id="dImgs" class="dimgs"></div>
+            <button class="btn" id="dAddImg" style="margin-top:2px">＋ obrázek</button>
+            <div class="mathead"><label>🧱 Materiál (build log)</label><div class="mul">potřebuju × <input id="dMult" class="multin" value="1"></div></div>
+            <div id="dMats"></div>
+            <button class="btn" id="dAddMat" style="margin-top:4px">＋ řádek</button>
+            <div class="dhint">Do množství můžeš psát i počty: <code>9*64</code>, <code>2*27+5</code>…</div>
+            <div class="dtotal" id="dTotal"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="popmenu" id="popMenu"></div>
+  <div class="modal" id="blogModal" style="display:none">
+    <div class="card" style="width:460px; max-height:82vh; display:flex; flex-direction:column;">
+      <h1 style="display:flex; align-items:center;">🧱 Build log <button id="blogClose" style="margin-left:auto; border:none; background:none; font-size:22px; cursor:pointer; color:var(--muted)">×</button></h1>
+      <p>Součet materiálu přes celý strom (započítané násobiče × u položek).</p>
+      <div id="blogList" style="overflow:auto; flex:1;"></div>
+      <div id="blogTotal" style="margin-top:12px; padding-top:10px; border-top:1px solid var(--line); font-size:15px; font-weight:600;"></div>
+    </div>
+  </div>
+  <div class="modal" id="shareModal" style="display:none">
+    <div class="card" style="width:480px; max-height:86vh; overflow:auto;">
+      <h1 style="display:flex;align-items:center;">🔗 Sdílení <button id="shClose" style="margin-left:auto;border:none;background:none;font-size:22px;cursor:pointer;color:var(--muted)">×</button></h1>
+      <p id="shStatus" style="margin-bottom:14px;"></p>
+      <details style="margin-bottom:14px; font-size:13px;">
+        <summary style="cursor:pointer; font-weight:600;">📖 Jednorázové nastavení (klikni)</summary>
+        <ol style="padding-left:18px; line-height:1.55; color:var(--text);">
+          <li>Jdi na <b>supabase.com</b> → New project (free, bez karty).</li>
+          <li>Vlevo <b>SQL Editor</b> → vlož a spusť tohle:
+            <pre style="background:var(--bg); padding:8px; border-radius:8px; overflow:auto; font-size:12px;">create table if not exists boards(
+  room text primary key,
+  data jsonb,
+  stamp text);
+alter table boards enable row level security;
+create policy "open" on boards
+  for all using (true) with check (true);</pre></li>
+          <li>Vlevo <b>Project Settings → API</b>: zkopíruj <b>Project URL</b> a <b>anon public</b> klíč sem dolů.</li>
+          <li>Dej <b>Zapnout sdílení</b>, pak <b>Kopírovat zvací odkaz</b> a pošli ho bráchovi — on jen otevře link a vidí totéž.</li>
+        </ol>
+      </details>
+      <label style="font-size:12px;color:var(--muted)">Project URL</label>
+      <input id="shUrl" placeholder="https://xxxx.supabase.co" style="width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:9px;margin:4px 0 10px;outline:none;">
+      <label style="font-size:12px;color:var(--muted)">anon public key</label>
+      <input id="shKey" placeholder="eyJhbGciOi…" style="width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:9px;margin:4px 0 10px;outline:none;">
+      <label style="font-size:12px;color:var(--muted)">Místnost (stejná = stejná tabule)</label>
+      <input id="shRoom" value="meatball" style="width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:9px;margin:4px 0 14px;outline:none;">
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <button class="btn primary" id="shEnable">Zapnout sdílení</button>
+        <button class="btn" id="shInvite">📋 Kopírovat zvací odkaz</button>
+        <button class="btn" id="shDisable" style="margin-left:auto;">Vypnout (zpět lokálně)</button>
+      </div>
+    </div>
+  </div>
+  <div class="modal" id="joinModal">
+    <div class="card">
+      <h1>🍝 Meatball Tracker</h1>
+      <p>Sdílený strom úkolů + myšlenková mapa pro váš modpack.</p>
+      <label>Tvoje jméno</label><input id="joinName" placeholder="třeba Homer" maxlength="20">
+      <label>Barva</label><div class="colors" id="joinColors"></div>
+      <label>Místnost</label><input id="joinRoom" value="meatball" maxlength="30">
+      <button class="btn primary" id="joinBtn">Vejít</button>
+    </div>
+  </div>
+
+<script type="module">
+/* ============================================================
+   Meatball Tracker — JEDNOTNÝ model: položka = bublina + řádek.
+   Vztahy = strom (parentId). Biomy = barvy sekcí mixované jako pigmenty.
+   ============================================================ */
+const STATES = {
+  todo:{lbl:'Volný',color:'var(--st-todo)',mark:''}, doing:{lbl:'Dělá se',color:'var(--st-doing)',mark:'▸'},
+  done:{lbl:'Hotovo',color:'var(--st-done)',mark:'✓'}, stopped:{lbl:'Stopped',color:'var(--st-stopped)',mark:'×'} };
+const STATE_CYCLE=['todo','doing','done','stopped'];
+const DEFAULT_SECTIONS=[
+  {id:'quest',name:'Main quest',icon:'📜',color:'#e8710a'},{id:'magic',name:'Magie',icon:'✨',color:'#9334e6'},
+  {id:'tech',name:'Tech & výroba',icon:'⚙️',color:'#1a73e8'},{id:'power',name:'Energie',icon:'⚡',color:'#f7c600'},
+  {id:'ae',name:'AE2 / úložiště',icon:'📦',color:'#12b5cb'},{id:'dim',name:'Dimenze & průzkum',icon:'🧭',color:'#1e8e3e'},
+  {id:'gear',name:'Gear & boj',icon:'⚔️',color:'#d93025'},{id:'base',name:'Base',icon:'🏠',color:'#f7c600'} ];
+const PALETTE=['#1a73e8','#9334e6','#e8710a','#f7c600','#12b5cb','#1e8e3e','#d93025','#5f6368'];
+const uid=()=>Math.random().toString(36).slice(2,9);
+
+class LocalSync {
+  constructor(room){ this.key='mbt4:'+room; this.cbs=[]; addEventListener('storage',e=>{ if(e.key===this.key) this._emit(); }); }
+  load(){ try{ return JSON.parse(localStorage.getItem(this.key))||null; }catch{ return null; } }
+  save(s){ localStorage.setItem(this.key,JSON.stringify(s)); this._emit(); }
+  subscribe(cb){ this.cbs.push(cb); } _emit(){ const s=this.load(); this.cbs.forEach(cb=>cb(s)); } stop(){} }
+
+class SupabaseSync {
+  constructor(url,key,room){ this.b=url.replace(/\/+$/,''); this.k=key; this.room=room; this.cbs=[]; this.stamp=null; this.lastJSON=null; this.timer=null; }
+  h(x){ return Object.assign({ apikey:this.k, Authorization:'Bearer '+this.k }, x||{}); }
+  async load(){ const r=await fetch(`${this.b}/rest/v1/boards?room=eq.${encodeURIComponent(this.room)}&select=data,stamp`,{headers:this.h()}); if(!r.ok) throw new Error('HTTP '+r.status); const a=await r.json(); if(a&&a[0]){ this.stamp=a[0].stamp; this.lastJSON=JSON.stringify(a[0].data); return a[0].data; } return null; }
+  async save(state){ const stamp=Date.now()+'.'+Math.random().toString(36).slice(2); this.stamp=stamp; this.lastJSON=JSON.stringify(state);
+    try{ await fetch(`${this.b}/rest/v1/boards?on_conflict=room`,{ method:'POST', headers:this.h({'Content-Type':'application/json',Prefer:'resolution=merge-duplicates,return=minimal'}), body:JSON.stringify({room:this.room,data:state,stamp}) }); }catch(e){ console.error('supa save',e); } }
+  subscribe(cb){ this.cbs.push(cb); if(!this.timer) this.timer=setInterval(()=>this._tick(),2000); }
+  stop(){ clearInterval(this.timer); this.timer=null; }
+  async _tick(){ try{ const r=await fetch(`${this.b}/rest/v1/boards?room=eq.${encodeURIComponent(this.room)}&select=stamp`,{headers:this.h()}); const a=await r.json(); const st=a&&a[0]&&a[0].stamp;
+    if(st&&st!==this.stamp){ const r2=await fetch(`${this.b}/rest/v1/boards?room=eq.${encodeURIComponent(this.room)}&select=data,stamp`,{headers:this.h()}); const a2=await r2.json(); if(a2&&a2[0]){ this.stamp=a2[0].stamp; const js=JSON.stringify(a2[0].data); if(js!==this.lastJSON){ this.lastJSON=js; this.cbs.forEach(cb=>cb(a2[0].data)); } } } }catch(e){} } }
+const DEFAULT_SUPA={ url:'https://gfftiddaztxqvsaivanq.supabase.co', key:'sb_publishable_d-yt4BwkJHicoKo2bAFpRA_GM5u-7MA' };
+function getSupaCreds(){ if(localStorage.getItem('mbt:nosupa')) return null; try{ const s=JSON.parse(localStorage.getItem('mbt:supa')||'null'); return (s&&s.url&&s.key)?s:DEFAULT_SUPA; }catch{ return DEFAULT_SUPA; } }
+
+/* RYB pigment mixing */
+function hex2rgb(h){ h=h.replace('#',''); return [parseInt(h.slice(0,2),16)/255,parseInt(h.slice(2,4),16)/255,parseInt(h.slice(4,6),16)/255]; }
+function rgb2ryb(r,g,b){ const w=Math.min(r,g,b); r-=w;g-=w;b-=w; const mg=Math.max(r,g,b); let y=Math.min(r,g); r-=y;g-=y;
+  if(b>0&&g>0){b*=0.5;g*=0.5;} y+=g;b+=g; const my=Math.max(r,y,b); if(my>0){const n=mg/my;r*=n;y*=n;b*=n;} return [r,y,b]; }
+const RC={c000:[1,1,1],c100:[1,0,0],c010:[1,1,0],c001:[0.163,0.373,0.6],c110:[1,0.5,0],c101:[0.5,0,0.5],c011:[0,0.66,0.2],c111:[0.1,0.05,0]};
+const l3=(a,b,t)=>[a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t,a[2]+(b[2]-a[2])*t];
+function ryb2rgb(r,y,b){ const x0=l3(RC.c000,RC.c100,r),x1=l3(RC.c010,RC.c110,r),x2=l3(RC.c001,RC.c101,r),x3=l3(RC.c011,RC.c111,r);
+  return l3(l3(x0,x1,y),l3(x2,x3,y),b); }
+
+let me=null, room='meatball', sync=null;
+let state={ sections:[], items:[], members:[], rev:0 };
+let selId=null, linking=null, focusSec=null, activeSec=null, sortMode='tree', onlyDoing=false;
+let view={x:0,y:0,k:1}; const collapsed=new Set(); let fieldCanvas=null;
+const $=s=>document.querySelector(s);
+const world=$('#world'), edgesSvg=$('#edges'), mapwrap=$('#mapwrap');
+
+function commit(){ state.rev=(state.rev||0)+1; sync.save(structuredClone(state)); }
+function onRemote(s){ if(!s) return; if(JSON.stringify(s)===JSON.stringify(state)) return; state=s; renderAll(); }
+
+const sectionById=id=>state.sections.find(s=>s.id===id);
+const itemById=id=>state.items.find(i=>i.id===id);
+const childrenOf=id=>state.items.filter(i=>i.parentId===id);
+const roots=()=>state.items.filter(i=>!i.parentId||!itemById(i.parentId));
+const memberByName=nm=>state.members.find(m=>m.name===nm);
+function isAncestor(aId,bId){ let c=itemById(bId); let g=0; while(c&&g++<999){ if(c.parentId===aId) return true; c=itemById(c.parentId); } return false; }
+function sectionColor(id){ const s=sectionById(id); return s?s.color:'#9aa0a6'; }
+const cssCol=v=>v.startsWith('var(')?(getComputedStyle(document.documentElement).getPropertyValue(v.slice(4,-1)).trim()||'#999'):v;
+
+/* ---------- mutace ---------- */
+function addItem({text='',parentId=null,sectionIds,x,y}={}){
+  const it={ id:uid(), text, status:'todo', assignees:[], parentId:parentId||null, sectionIds:[], x:0, y:0 };
+  if(parentId){ const p=itemById(parentId); const n=childrenOf(parentId).length;
+    setSecIds(it, sectionIds!==undefined?sectionIds:[...itemSecIds(p)]);
+    it.x = x!==undefined?x : p.x+(p.w||150)+90;
+    it.y = y!==undefined?y : p.y+(n-0)*86;
+  } else {
+    setSecIds(it, sectionIds!==undefined?sectionIds:(activeSec?[activeSec]:[]));
+    it.x = x!==undefined?x : (mapwrap.clientWidth/2-view.x)/view.k;
+    it.y = y!==undefined?y : (mapwrap.clientHeight/2-view.y)/view.k;
+  }
+  state.items.push(it); commit(); renderAll(); selectNode(it.id); return it;
+}
+function setStatus(id){ const it=itemById(id); if(!it) return; const k=STATE_CYCLE[(STATE_CYCLE.indexOf(it.status)+1)%STATE_CYCLE.length]; if(k==='doing'&&it.status!=='doing') it.doingTs=Date.now(); it.status=k; commit(); renderAll(); }
+function setText(id,t){ const it=itemById(id); if(!it) return; it.text=t.trim()||'Položka'; commit(); }
+function itemSecIds(it){ const a=it.sectionIds||(it.sectionId!=null?[it.sectionId]:[]); return a.filter(id=>sectionById(id)); }
+function setSecIds(it,arr){ it.sectionIds=arr; if('sectionId' in it) delete it.sectionId; }
+function toggleSection(id,sec){ const it=itemById(id); if(!it) return; const a=itemSecIds(it); setSecIds(it, a.includes(sec)?a.filter(x=>x!==sec):[...a,sec]); commit(); renderAll(); }
+function clearSections(id){ const it=itemById(id); if(!it) return; setSecIds(it,[]); commit(); renderAll(); }
+function rgb2hex(r,g,b){ const h=v=>('0'+Math.round(Math.max(0,Math.min(1,v))*255).toString(16)).slice(-2); return '#'+h(r)+h(g)+h(b); }
+function itemRYB(it){ const ids=itemSecIds(it); if(!ids.length) return null; let r=0,y=0,b=0; for(const id of ids){ const c=rgb2ryb(...hex2rgb(sectionColor(id))); r+=c[0];y+=c[1];b+=c[2]; } return [r/ids.length,y/ids.length,b/ids.length]; }
+function itemColorHex(it){ const ids=itemSecIds(it); if(!ids.length) return '#9aa0a6'; if(ids.length===1) return sectionColor(ids[0]); return rgb2hex(...ryb2rgb(...itemRYB(it))); }
+function toggleAssignee(id,name){ const it=itemById(id); if(!it) return; it.assignees=it.assignees.includes(name)?it.assignees.filter(a=>a!==name):[...it.assignees,name]; commit(); renderAll(); }
+function reparent(childId,parentId){ if(childId===parentId||isAncestor(childId,parentId)) return; const c=itemById(childId); if(!c) return; c.parentId=parentId; commit(); renderAll(); }
+function addParentLink(childId,parentId){ if(childId===parentId) return; const c=itemById(childId); if(!c||isAncestor(childId,parentId)) return;
+  if(!c.parentId){ c.parentId=parentId; } else if(c.parentId!==parentId){ c.links=c.links||[]; if(!c.links.includes(parentId)) c.links.push(parentId); }
+  commit(); renderAll(); }
+function deleteItem(id){ const it=itemById(id); if(!it) return; childrenOf(id).forEach(c=>c.parentId=it.parentId);
+  state.items=state.items.filter(x=>x.id!==id); state.items.forEach(x=>{ if(x.links) x.links=x.links.filter(l=>l!==id); }); if(selId===id) selId=null; commit(); renderAll(); }
+
+/* ---------- LEVÝ STROM / seznamy ---------- */
+function renderTasks(){
+  const box=$('#tasks'); box.innerHTML='';
+  if(onlyDoing){ const doing=state.items.filter(i=>i.status==='doing').sort((a,b)=>(a.doingTs||0)-(b.doingTs||0));
+    if(!doing.length){ box.innerHTML='<div style="padding:14px;color:var(--muted);font-size:13px">Teď se nic „nedělá". Přepni položku na stav „Dělá se".</div>'; return; }
+    const groups=state.members.map(m=>({key:m.name,label:m.name,col:m.color,items:[]})); groups.push({key:'_u',label:'Nepřiřazeno',col:'#9aa0a6',items:[]});
+    for(const it of doing){ if(!it.assignees.length) groups[groups.length-1].items.push(it); else for(const a of it.assignees)(groups.find(g=>g.key===a)||groups[groups.length-1]).items.push(it); }
+    for(const g of groups){ if(!g.items.length) continue; const grp=document.createElement('div'); grp.className='grp';
+      grp.innerHTML=`<div class="grphead"><div class="gbar" style="background:${g.col}"></div><span class="gname">${g.label}</span><span class="gcount">${g.items.length}</span></div><div class="grpbody"></div>`;
+      const body=grp.querySelector('.grpbody'); for(const it of g.items) flatRow(it,body); box.appendChild(grp); }
+    return; }
+  if(sortMode==='tree'){ roots().forEach(r=>treeRow(r,0,box)); if(!state.items.length) box.innerHTML='<div style="padding:14px;color:var(--muted);font-size:13px">Zatím nic. Přidej položku nahoře nebo 2× klikni na mapu.</div>'; return; }
+  let groups=[];
+  if(sortMode==='section'){ groups=[...state.sections.map(s=>({key:s.id,label:s.name,icon:s.icon,col:s.color,items:[]})),{key:'_n',label:'Bez sekce',icon:'📥',col:'#9aa0a6',items:[]}];
+    for(const it of state.items){ const ids=itemSecIds(it); if(!ids.length){ groups[groups.length-1].items.push(it); continue; } for(const id of ids){ const g=groups.find(g=>g.key===id); if(g) g.items.push(it); } } }
+  else if(sortMode==='status'){ groups=STATE_CYCLE.map(s=>({key:s,label:STATES[s].lbl,icon:STATES[s].mark||'○',col:cssCol(STATES[s].color),items:[]}));
+    for(const it of state.items) (groups.find(g=>g.key===it.status)||groups[0]).items.push(it); }
+  else { groups=state.members.map(m=>({key:m.name,label:m.name,icon:'🙂',col:m.color,items:[]})); groups.push({key:'_u',label:'Nepřiřazeno',icon:'·',col:'#9aa0a6',items:[]});
+    for(const it of state.items){ if(!it.assignees.length) groups[groups.length-1].items.push(it); else for(const a of it.assignees)(groups.find(g=>g.key===a)||groups[groups.length-1]).items.push(it); } }
+  for(const g of groups){ if(!g.items.length) continue;
+    const grp=document.createElement('div'); grp.className='grp';
+    grp.innerHTML=`<div class="grphead"><div class="gbar" style="background:${g.col}"></div><span>${g.icon}</span><span class="gname">${g.label}</span><span class="gcount">${g.items.length}</span></div><div class="grpbody"></div>`;
+    const body=grp.querySelector('.grpbody'); for(const it of g.items) flatRow(it,body); box.appendChild(grp);
+  }
+}
+function rowBase(it,depth){
+  const st=STATES[it.status]||STATES.todo, stc=cssCol(st.color);
+  const el=document.createElement('div'); el.className='trow '+it.status+(selId===it.id?' sel':''); el.style.paddingLeft=(7+depth*15)+'px'; el.dataset.id=it.id;
+  const kids=childrenOf(it.id).length, ck='c'+it.id, isc=collapsed.has(ck);
+  const avs=it.assignees.map(nm=>{const m=memberByName(nm);return `<div class="av" title="${nm}" style="background:${m?m.color:'#9aa0a6'}">${nm.slice(0,1).toUpperCase()}</div>`;}).join('');
+  el.innerHTML=`<span class="twist">${kids?(isc?'▸':'▾'):''}</span>
+    <div class="stbox" title="${st.lbl}" style="border-color:${stc};background:${it.status==='todo'?'transparent':stc}">${st.mark}</div>
+    <div class="tcol" style="background:${itemColorHex(it)}"></div>
+    <div class="ttxt">${escapeHtml(it.text||'…')}</div>
+    <div class="tav">${avs}</div>
+    <button class="tbtn b-add" title="Pod-položka">＋</button>
+    <button class="tbtn b-who" title="Kdo">👤</button>
+    <button class="tbtn b-note" title="Materiál & poznámky">📋</button>
+    <button class="tbtn b-del" title="Smazat">×</button>`;
+  el.querySelector('.tcol').title='Změnit sekci';
+  el.querySelector('.tcol').onclick=e=>{e.stopPropagation();openSectionMenu(e,it.id);};
+  el.querySelector('.stbox').onclick=e=>{e.stopPropagation();setStatus(it.id);};
+  el.querySelector('.twist').onclick=e=>{e.stopPropagation(); if(!kids)return; isc?collapsed.delete(ck):collapsed.add(ck); renderTasks();};
+  el.querySelector('.ttxt').onclick=()=>{ const n=itemById(it.id); selectNode(it.id); flyTo(n); renderTasks(); };
+  el.querySelector('.ttxt').ondblclick=e=>{ e.stopPropagation(); const t=prompt('Text položky:',it.text); if(t!==null){ setText(it.id,t); renderAll(); } };
+  el.querySelector('.b-add').onclick=e=>{e.stopPropagation(); const c=addItem({parentId:it.id}); collapsed.delete('c'+it.id); editOnMap(c.id);};
+  el.querySelector('.b-who').onclick=e=>{e.stopPropagation(); openAssignMenu(e,it.id);};
+  el.querySelector('.b-note').onclick=e=>{e.stopPropagation(); openDetail(it.id);};
+  el.querySelector('.b-del').onclick=e=>{e.stopPropagation(); deleteItem(it.id);};
+  el.addEventListener('contextmenu',e=>{ e.preventDefault(); selectNode(it.id); openNodeMenu(e,it.id); });
+  return {el,isc,kids};
+}
+function treeRow(it,depth,box){ const {el,isc}=rowBase(it,depth); box.appendChild(el); if(!isc) childrenOf(it.id).forEach(c=>treeRow(c,depth+1,box)); }
+function flatRow(it,box){ const {el}=rowBase(it,0); el.querySelector('.twist').textContent=''; box.appendChild(el); }
+function escapeHtml(s){ return s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+
+function openAssignMenu(e,id){ const it=itemById(id); const m=$('#popMenu'); m.innerHTML='';
+  if(!state.members.length){ const d=document.createElement('div'); d.style.cssText='padding:8px 11px;font-size:12px;color:var(--muted)'; d.textContent='Zatím nikdo nepřipojen'; m.appendChild(d); }
+  for(const mem of state.members){ const on=it.assignees.includes(mem.name); const b=document.createElement('button');
+    b.innerHTML=`<span class="sw" style="background:${mem.color}"></span>${mem.name} ${on?'✓':''}`; b.onclick=()=>{ toggleAssignee(id,mem.name); openAssignMenu(e,id); }; m.appendChild(b); }
+  showPop(m,e.target); }
+function showPopAt(m,x,y){ m.style.display='block'; m.style.left=Math.min(x,innerWidth-m.offsetWidth-10)+'px'; m.style.top=Math.min(y,innerHeight-m.offsetHeight-10)+'px'; setTimeout(()=>addEventListener('pointerdown',closePop),0); }
+function openNodeMenu(e,id){ const it=itemById(id); if(!it) return; const m=$('#popMenu'); m.innerHTML='';
+  const add=(label,fn,cls)=>{ const b=document.createElement('button'); if(cls) b.className=cls; b.textContent=label; b.onclick=()=>fn(); m.appendChild(b); };
+  const hd=t=>{ const d=document.createElement('div'); d.className='mhd'; d.textContent=t; m.appendChild(d); };
+  const sep=()=>{ const d=document.createElement('div'); d.className='msep'; m.appendChild(d); };
+  add('Přejmenovat',()=>{ m.style.display='none'; const t=prompt('Text položky:',it.text); if(t!==null){ setText(id,t); renderAll(); } });
+  add('Přidat pod-položku',()=>{ m.style.display='none'; const c=addItem({parentId:id}); editOnMap(c.id); });
+  add('Materiál & poznámky',()=>{ m.style.display='none'; openDetail(id); });
+  hd('Stav');
+  for(const k of STATE_CYCLE){ const s=STATES[k]; const b=document.createElement('button'); b.innerHTML=`<span class="sw" style="background:${cssCol(s.color)}"></span>${s.lbl}${it.status===k?'  ✓':''}`; b.onclick=()=>{ if(k==='doing'&&it.status!=='doing') it.doingTs=Date.now(); it.status=k; commit(); renderAll(); m.style.display='none'; }; m.appendChild(b); }
+  sep();
+  add('Sekce…',()=>openSectionMenu(e,id));
+  add('Přiřadit lidi…',()=>openAssignMenu(e,id));
+  if(it.parentId) add('Odpojit od rodiče',()=>{ it.parentId=null; commit(); renderAll(); m.style.display='none'; });
+  sep();
+  add('Smazat',()=>{ deleteItem(id); m.style.display='none'; },'danger');
+  showPopAt(m,e.clientX,e.clientY); }
+function openSectionMenu(e,id){ const it=itemById(id); if(!it) return; const m=$('#popMenu'); m.innerHTML='';
+  const cur=itemSecIds(it);
+  const hd=document.createElement('div'); hd.style.cssText='padding:6px 11px 3px;font-size:11px;color:var(--muted)'; hd.textContent='Sekce — klidně víc, barvy se smíchají'; m.appendChild(hd);
+  for(const s of state.sections){ const on=cur.includes(s.id); const b=document.createElement('button'); b.innerHTML=`<span class="sw" style="background:${s.color}"></span>${s.icon} ${s.name}${on?' ✓':''}`; b.onclick=()=>{ toggleSection(id,s.id); activeSec=s.id; openSectionMenu(e,id); }; m.appendChild(b); }
+  const bn=document.createElement('button'); bn.innerHTML=`<span class="sw" style="background:#9aa0a6"></span>Bez sekce`; bn.onclick=()=>{ clearSections(id); m.style.display='none'; }; m.appendChild(bn);
+  showPopAt(m, e.clientX||60, e.clientY||120); }
+function showPop(m,a){ m.style.display='block'; const r=a.getBoundingClientRect(); m.style.left=Math.min(r.left,innerWidth-m.offsetWidth-10)+'px'; m.style.top=(r.bottom+4)+'px'; setTimeout(()=>addEventListener('pointerdown',closePop),0); }
+function closePop(e){ const m=$('#popMenu'); if(!m.contains(e.target)){ m.style.display='none'; removeEventListener('pointerdown',closePop); } }
+
+/* ---------- MAPA ---------- */
+function applyView(){ world.style.transform=`translate(${view.x}px,${view.y}px) scale(${view.k})`; renderEdges(); }
+function renderMap(){
+  world.innerHTML=''; fieldCanvas=document.createElement('canvas'); fieldCanvas.className='field'; world.appendChild(fieldCanvas);
+  for(const it of state.items){
+    const st=STATES[it.status]||STATES.todo, stc=cssCol(st.color);
+    const el=document.createElement('div'); el.className='node '+it.status+(selId===it.id?' sel':''); if(focusSec&&!itemSecIds(it).includes(focusSec)) el.classList.add('dim');
+    el.style.left=it.x+'px'; el.style.top=it.y+'px'; el.style.borderColor=itemColorHex(it); el.dataset.id=it.id; if(it.w){ el.style.width=it.w+'px'; el.style.maxWidth='none'; } if(it.h){ el.style.minHeight=it.h+'px'; }
+    let imgHtml=''; const imgs=(it.images||[]).map(imgObj);
+    if(imgs.length===1){ imgHtml=`<img class="nthumb cover" data-i="0" src="${imgs[0].src}">`; }
+    else if(imgs.length>1){ const cols=it.imgCols||(imgs.length<=4?2:3);
+      imgHtml='<div class="nimgs" style="grid-template-columns:repeat('+cols+',1fr)">'+imgs.slice(0,9).map((im,k)=>`<img class="nthumb" data-i="${k}" src="${im.src}">`).join('')+(imgs.length>9?`<div class="nmore">+${imgs.length-9}</div>`:'')+'</div>'; }
+    el.innerHTML=`<div class="nrow"><div class="nst" title="${st.lbl}" style="border-color:${stc};background:${it.status==='todo'?'transparent':stc}">${st.mark}</div><div class="ntxt" contenteditable="false"></div></div>${it.notes?'<div class="nnotes">'+escapeHtml(it.notes)+'</div>':''}${imgHtml}
+      <div class="nclose">×</div><div class="nport"></div><div class="nadd" title="Napojená pod-položka">＋</div>`;
+    const tx=el.querySelector('.ntxt'); tx.textContent=it.text||''; tx.title=it.text||'';
+    wireNode(el,it); world.appendChild(el);
+  }
+  renderField(); applyView();
+}
+function worldFromEvent(e){ const r=mapwrap.getBoundingClientRect(); return {x:(e.clientX-r.left-view.x)/view.k,y:(e.clientY-r.top-view.y)/view.k}; }
+function elFor(id){ return world.querySelector(`.node[data-id="${id}"]`); }
+
+function renderField(){
+  const its=state.items.filter(i=>itemSecIds(i).length); if(!its.length){ fieldCanvas.style.display='none'; return; } fieldCanvas.style.display='block';
+  const pad=360,R=160; const xs=its.map(i=>i.x),ys=its.map(i=>i.y);
+  const minx=Math.min(...xs)-pad,miny=Math.min(...ys)-pad,maxx=Math.max(...xs)+pad,maxy=Math.max(...ys)+pad; const W=maxx-minx,H=maxy-miny;
+  const SCALE=Math.max(7,Math.ceil(Math.max(W,H)/190)); const cw=Math.max(1,Math.round(W/SCALE)),ch=Math.max(1,Math.round(H/SCALE));
+  fieldCanvas.width=cw; fieldCanvas.height=ch; fieldCanvas.style.left=minx+'px'; fieldCanvas.style.top=miny+'px'; fieldCanvas.style.width=W+'px'; fieldCanvas.style.height=H+'px';
+  fieldCanvas.style.filter=`blur(${Math.max(3,SCALE*0.7)}px)`;
+  const pts=its.map(i=>({sx:(i.x-minx)/SCALE,sy:(i.y-miny)/SCALE,rgb:hex2rgb(itemColorHex(i)),ryb:itemRYB(i)}));
+  const Rs=R/SCALE, denom=2*Rs*Rs; const ctx=fieldCanvas.getContext('2d'); const img=ctx.createImageData(cw,ch); const d=img.data;
+  for(let j=0;j<ch;j++) for(let i=0;i<cw;i++){
+    let tot=0,ar=0,ay=0,ab=0,domW=0,secW=0,domRGB=null;
+    for(const p of pts){ const dx=i-p.sx,dy=j-p.sy; const w=Math.exp(-(dx*dx+dy*dy)/denom); if(w<0.002) continue; tot+=w; ar+=w*p.ryb[0];ay+=w*p.ryb[1];ab+=w*p.ryb[2]; if(w>domW){ secW=domW; domW=w; domRGB=p.rgb; } else if(w>secW) secW=w; }
+    if(tot<0.03){ d[(j*cw+i)*4+3]=0; continue; }
+    const mixed=ryb2rgb(ar/tot,ay/tot,ab/tot), dom=domRGB||[.6,.6,.6]; const t=Math.min(1,(secW/(domW+secW||1))*2);
+    const r=dom[0]+(mixed[0]-dom[0])*t,g=dom[1]+(mixed[1]-dom[1])*t,b=dom[2]+(mixed[2]-dom[2])*t;
+    const fade=Math.min(1,Math.max(0,(tot-0.05)/0.18)); const a=Math.min(0.4,(1-Math.exp(-tot*1.3))*0.46)*fade;
+    const o=(j*cw+i)*4; d[o]=r*255|0; d[o+1]=g*255|0; d[o+2]=b*255|0; d[o+3]=a*255|0;
+  }
+  ctx.putImageData(img,0,0);
+}
+
+function wireNode(el,it){
+  const txt=el.querySelector('.ntxt');
+  el.querySelector('.nst').onclick=e=>{ e.stopPropagation(); setStatus(it.id); };
+  el.querySelectorAll('.nthumb').forEach(im=>{ im.draggable=false; im.onclick=e=>{ e.stopPropagation(); lightbox(it.images,+im.dataset.i||0); }; });
+  const nn=el.querySelector('.nnotes'); if(nn) nn.onclick=e=>{ e.stopPropagation(); openDetail(it.id); };
+  el.addEventListener('pointerdown',e=>{
+    if(['nport','nclose','nadd','nst','nthumb','nmore','nnotes'].some(c=>e.target.classList.contains(c))) return;
+    if(txt.getAttribute('contenteditable')==='true') return;
+    const rect=el.getBoundingClientRect(), th=11;
+    const nl=e.clientX-rect.left<th, nr=rect.right-e.clientX<th, nt=e.clientY-rect.top<th, nb=rect.bottom-e.clientY<th;
+    selectNode(it.id); renderTasks();
+    if(nl||nr||nt||nb){ // RESIZE z okraje (symetricky kolem středu) — chyť kterýkoliv okraj/roh
+      const horiz=nl||nr, vert=nt||nb; el.setPointerCapture(e.pointerId);
+      const move=ev=>{ const w=worldFromEvent(ev);
+        if(horiz){ it.w=Math.max(70,Math.abs(w.x-it.x)*2); el.style.width=it.w+'px'; el.style.maxWidth='none'; }
+        if(vert){ it.h=Math.max(34,Math.abs(w.y-it.y)*2); el.style.minHeight=it.h+'px'; } renderEdges(); };
+      const up=()=>{ el.releasePointerCapture(e.pointerId); el.removeEventListener('pointermove',move); el.removeEventListener('pointerup',up); commit(); renderField(); };
+      el.addEventListener('pointermove',move); el.addEventListener('pointerup',up); return;
+    }
+    const s=worldFromEvent(e),ox=it.x,oy=it.y; let moved=false; el.setPointerCapture(e.pointerId);
+    const move=ev=>{ const w=worldFromEvent(ev); it.x=ox+(w.x-s.x); it.y=oy+(w.y-s.y); moved=true; el.style.left=it.x+'px'; el.style.top=it.y+'px'; renderEdges(); };
+    const up=()=>{ el.releasePointerCapture(e.pointerId); el.removeEventListener('pointermove',move); el.removeEventListener('pointerup',up); if(moved){ commit(); renderField(); } };
+    el.addEventListener('pointermove',move); el.addEventListener('pointerup',up);
+  });
+  el.addEventListener('pointermove',e=>{ if(e.buttons||txt.getAttribute('contenteditable')==='true') return; const rect=el.getBoundingClientRect(), th=11;
+    const l=e.clientX-rect.left<th,r=rect.right-e.clientX<th,t=e.clientY-rect.top<th,b=rect.bottom-e.clientY<th;
+    el.style.cursor=(l&&t)||(r&&b)?'nwse-resize':(r&&t)||(l&&b)?'nesw-resize':(l||r)?'ew-resize':(t||b)?'ns-resize':'grab'; });
+  el.addEventListener('contextmenu',e=>{ e.preventDefault(); selectNode(it.id); renderTasks(); openNodeMenu(e,it.id); });
+  txt.addEventListener('dblclick',()=>startEdit(it));
+  txt.addEventListener('blur',()=>{ txt.setAttribute('contenteditable','false'); setText(it.id,txt.textContent); txt.textContent=it.text; renderTasks(); });
+  txt.addEventListener('keydown',e=>{ if(e.key==='Enter'){e.preventDefault();txt.blur();} if(e.key==='Escape'){txt.textContent=it.text;txt.blur();} e.stopPropagation(); });
+  el.querySelector('.nclose').onclick=()=>deleteItem(it.id);
+  el.querySelector('.nadd').onclick=e=>{ e.stopPropagation(); const c=addItem({parentId:it.id}); editOnMap(c.id); };
+  el.querySelector('.nport').addEventListener('pointerdown',e=>{ e.stopPropagation(); linking={from:it.id}; mapwrap.setPointerCapture(e.pointerId);
+    const move=ev=>{ linking.to=worldFromEvent(ev); renderEdges(); };
+    const up=ev=>{ mapwrap.releasePointerCapture(e.pointerId); mapwrap.removeEventListener('pointermove',move); mapwrap.removeEventListener('pointerup',up);
+      const tEl=document.elementFromPoint(ev.clientX,ev.clientY)?.closest('.node'); if(tEl){ const tid=tEl.dataset.id; if(tid&&tid!==it.id) addParentLink(tid,it.id); } linking=null; renderMap(); };
+    mapwrap.addEventListener('pointermove',move); mapwrap.addEventListener('pointerup',up); });
+}
+function selectNode(id){ selId=id; world.querySelectorAll('.node').forEach(c=>c.classList.toggle('sel',c.dataset.id===id)); renderEdges(); }
+function startEdit(it){ const el=elFor(it.id); if(!el) return; const txt=el.querySelector('.ntxt'); txt.setAttribute('contenteditable','true'); txt.focus();
+  const r=document.createRange(); r.selectNodeContents(txt); const s=getSelection(); s.removeAllRanges(); s.addRange(r); }
+function editOnMap(id){ const it=itemById(id); if(!it) return; flyTo(it); setTimeout(()=>startEdit(it),30); }
+
+function nodeSize(id){ const el=elFor(id); return el?{w:el.offsetWidth,h:el.offsetHeight}:{w:120,h:42}; }
+function borderPoint(cx,cy,w,h,tx,ty){ const dx=tx-cx,dy=ty-cy; if(!dx&&!dy) return {x:cx,y:cy}; const hw=w/2+3,hh=h/2+3; const sx=dx?hw/Math.abs(dx):1e9,sy=dy?hh/Math.abs(dy):1e9; const s=Math.min(sx,sy); return {x:cx+dx*s,y:cy+dy*s}; }
+function smoothPath(pts){ if(pts.length<2) return ''; let d=`M${pts[0].x.toFixed(1)},${pts[0].y.toFixed(1)}`;
+  for(let i=0;i<pts.length-1;i++){ const p0=pts[i-1]||pts[i],p1=pts[i],p2=pts[i+1],p3=pts[i+2]||p2;
+    const c1x=p1.x+(p2.x-p0.x)/6,c1y=p1.y+(p2.y-p0.y)/6,c2x=p2.x-(p3.x-p1.x)/6,c2y=p2.y-(p3.y-p1.y)/6;
+    d+=` C${c1x.toFixed(1)},${c1y.toFixed(1)} ${c2x.toFixed(1)},${c2y.toFixed(1)} ${p2.x.toFixed(1)},${p2.y.toFixed(1)}`; } return d; }
+function renderEdges(){
+  const Wd=mapwrap.clientWidth,Hd=mapwrap.clientHeight; edgesSvg.setAttribute('viewBox',`0 0 ${Wd} ${Hd}`); const ts=p=>({x:p.x*view.k+view.x,y:p.y*view.k+view.y});
+  let reach=null; // potomci vybraného uzlu (kam vedou šipky)
+  if(selId){ reach=new Set([selId]); const st=[selId]; while(st.length){ const cur=st.pop(); for(const it of state.items){ if(!reach.has(it.id) && [it.parentId,...(it.links||[])].includes(cur)){ reach.add(it.id); st.push(it.id); } } } }
+  let html=`<defs><marker id="ar" markerWidth="9" markerHeight="9" refX="6.5" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#5d626b"/></marker><marker id="arL" markerWidth="10" markerHeight="10" refX="6.5" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#8ab4f8"/></marker></defs>`;
+  const draw=(a,b,lit)=>{ const sa=nodeSize(a.id),sb=nodeSize(b.id);
+    const stroke=lit?'#8ab4f8':'#5d626b', sw=lit?3:2, op=(reach&&!lit)?0.12:1, attrs=`fill="none" stroke="${stroke}" stroke-width="${sw}" stroke-opacity="${op}" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#${lit?'arL':'ar'})"`;
+    const wp=state.waypoints&&state.waypoints[a.id+'|'+b.id];
+    if(wp&&wp.length){ const pts=[{x:a.x+sa.w/2,y:a.y},...wp,{x:b.x-sb.w/2,y:b.y}].map(ts); return `<path d="${smoothPath(pts)}" ${attrs}/>`; }
+    let d; if(b.x>a.x+10){ const p1=ts({x:a.x+sa.w/2,y:a.y}),p2=ts({x:b.x-sb.w/2,y:b.y});
+      const midX=p1.x+Math.max(16,(p2.x-p1.x)*0.5),s=p2.y>p1.y?1:-1,r=Math.max(0,Math.min(12,Math.abs(p2.y-p1.y)/2,Math.abs(midX-p1.x),Math.abs(p2.x-midX)));
+      d=(Math.abs(p2.y-p1.y)<2||r<2)?`M${p1.x},${p1.y} L${p2.x},${p2.y}`:`M${p1.x},${p1.y} L${midX-r},${p1.y} Q${midX},${p1.y} ${midX},${p1.y+s*r} L${midX},${p2.y-s*r} Q${midX},${p2.y} ${midX+r},${p2.y} L${p2.x},${p2.y}`;
+    } else { const an=borderPoint(a.x,a.y,sa.w,sa.h,b.x,b.y),bn=borderPoint(b.x,b.y,sb.w,sb.h,a.x,a.y); const p1=ts(an),p2=ts(bn);
+      const ddx=p2.x-p1.x,ddy=p2.y-p1.y,len=Math.hypot(ddx,ddy)||1,bow=Math.min(22,len*0.13),cx=(p1.x+p2.x)/2+(-ddy/len)*bow,cy=(p1.y+p2.y)/2+(ddx/len)*bow; d=`M${p1.x},${p1.y} Q${cx},${cy} ${p2.x},${p2.y}`; }
+    return `<path d="${d}" ${attrs}/>`; };
+  let base='',litS=''; const push=(a,b)=>{ const lit=!!(reach&&reach.has(a.id)); (lit?(litS+=draw(a,b,true)):(base+=draw(a,b,false))); };
+  for(const it of state.items){ const a=it.parentId&&itemById(it.parentId); if(a) push(a,it);
+    for(const lid of (it.links||[])){ const l=itemById(lid); if(l&&l.id!==it.parentId) push(l,it); } }
+  html+=base+litS;
+  if(linking&&linking.to){ const a=itemById(linking.from); const p1=ts({x:a.x,y:a.y}),p2=ts(linking.to); html+=`<path d="M${p1.x},${p1.y} L${p2.x},${p2.y}" stroke="#8ab4f8" stroke-width="2" stroke-dasharray="5,4" fill="none"/>`; }
+  edgesSvg.innerHTML=html;
+}
+function flyTo(it){ if(!it) return; view.k=Math.max(view.k,0.8); view.x=mapwrap.clientWidth/2-it.x*view.k; view.y=mapwrap.clientHeight/2-it.y*view.k; applyView(); selectNode(it.id);
+  const el=elFor(it.id); if(el){ el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); } }
+function fit(filterSec){ let its=state.items; if(filterSec) its=its.filter(i=>itemSecIds(i).includes(filterSec));
+  if(!its.length){ view={x:mapwrap.clientWidth/2-200,y:mapwrap.clientHeight/2-150,k:.9}; applyView(); return; }
+  const xs=its.map(i=>i.x),ys=its.map(i=>i.y); const minx=Math.min(...xs)-170,maxx=Math.max(...xs)+170,miny=Math.min(...ys)-120,maxy=Math.max(...ys)+120;
+  const w=maxx-minx,h=maxy-miny,k=Math.min(1.4,Math.min(mapwrap.clientWidth/w,mapwrap.clientHeight/h)); view.k=k; view.x=mapwrap.clientWidth/2-((minx+maxx)/2)*k; view.y=mapwrap.clientHeight/2-((miny+maxy)/2)*k; applyView(); }
+// Sugiyama: vrstvy(longest-path) → dummy uzly pro dlouhé hrany → median sweep → barycentr souřadnice
+function layeredLayout(){
+  const items=state.items; if(!items.length) return;
+  const par=it=>[it.parentId,...(it.links||[])].filter(p=>p&&itemById(p));
+  // 1) vrstvy
+  const layer={}; items.forEach(it=>{ if(!par(it).length) layer[it.id]=0; });
+  let ch=true,g=0; while(ch&&g++<2000){ ch=false; for(const it of items){ const ps=par(it); if(!ps.length) continue;
+    const pl=ps.map(p=>layer[p]); if(pl.some(v=>v===undefined)) continue; const nl=Math.max(...pl)+1; if(layer[it.id]!==nl){layer[it.id]=nl;ch=true;} } }
+  items.forEach(it=>{ if(layer[it.id]===undefined) layer[it.id]=0; });
+  const maxL=Math.max(...items.map(it=>layer[it.id]));
+  // 2) graf real+dummy
+  const N={}; items.forEach(it=>N[it.id]={id:it.id,real:1,layer:layer[it.id]});
+  const adj={}; const link=(u,v)=>{(adj[u]=adj[u]||[]).push(v);(adj[v]=adj[v]||[]).push(u);};
+  const chains=[]; let dc=0;
+  for(const it of items) for(const p of par(it)){ const la=layer[p],lb=layer[it.id];
+    if(lb-la<=1){ link(p,it.id); chains.push({key:p+'|'+it.id,mids:[]}); }
+    else { let prev=p; const mids=[]; for(let l=la+1;l<lb;l++){ const d='d'+(dc++); N[d]={id:d,real:0,layer:l}; mids.push(d); link(prev,d); prev=d; } link(prev,it.id); chains.push({key:p+'|'+it.id,mids}); } }
+  const layers=[]; for(let l=0;l<=maxL;l++) layers[l]=Object.values(N).filter(n=>n.layer===l);
+  // 3) median sweep
+  layers.forEach(L=>L.sort((a,b)=>((a.real?itemById(a.id).y:0)-(b.real?itemById(b.id).y:0)))); const pos={}; layers.forEach(L=>L.forEach((n,i)=>pos[n.id]=i));
+  const median=v=>{ v=v.filter(x=>x>=0).sort((a,b)=>a-b); const n=v.length; if(!n) return -1; const m=n>>1; return n%2?v[m]:(v[m-1]+v[m])/2; };
+  for(let s=0;s<14;s++){ const down=s%2===0; const seq=down?[...layers.keys()]:[...layers.keys()].reverse();
+    for(const l of seq){ const L=layers[l]; L.forEach(n=>{ const nb=(adj[n.id]||[]).filter(id=>N[id].layer===(down?l-1:l+1)); n._m=median(nb.map(id=>pos[id])); if(n._m<0) n._m=pos[n.id]; });
+      L.sort((a,b)=>(a._m-b._m)||(pos[a.id]-pos[b.id])); L.forEach((n,i)=>pos[n.id]=i); } }
+  // 4) souřadnice
+  const COLW=200, bx=120, by=120, REAL=82, DUM=30; const Y={}; layers.forEach(L=>{ let y=0; L.forEach(n=>{ Y[n.id]=y; y+=(n.real?REAL:DUM); }); });
+  for(let r=0;r<20;r++){ for(const L of layers){ L.forEach(n=>{ const nb=adj[n.id]||[]; if(nb.length) Y[n.id]=nb.reduce((a,id)=>a+Y[id],0)/nb.length; });
+    L.sort((a,b)=>pos[a.id]-pos[b.id]); for(let i=1;i<L.length;i++){ const gap=(L[i].real&&L[i-1].real)?REAL:DUM; if(Y[L[i].id]<Y[L[i-1].id]+gap) Y[L[i].id]=Y[L[i-1].id]+gap; } } }
+  const X=id=>bx+N[id].layer*COLW;
+  items.forEach(it=>{ it.x=X(it.id); it.y=by+Y[it.id]; });
+  state.waypoints={}; for(const e of chains) if(e.mids.length) state.waypoints[e.key]=e.mids.map(id=>({x:X(id),y:by+Y[id]}));
+  commit(); renderAll(); fit(); }
+
+/* ---------- šablony ---------- */
+const TEMPLATES={
+  'Brainstorm':{t:'Téma',c:['Nápad 1','Nápad 2','Nápad 3','Nápad 4']},
+  'Cíl → kroky':{t:'Cíl',c:['Krok 1','Krok 2','Krok 3']},
+  'Projekt':{t:'Projekt',c:['Nápady','Úkoly','Blokery']},
+  'Postup / checklist':{t:'Postup',c:['1. …','2. …','3. …','4. …']},
+  'Denní plán':{t:'Den',c:['Ráno','Dopoledne','Odpoledne','Večer']},
+  'Rozhodnutí':{t:'Rozhodnutí',c:[{t:'Možnost A',c:['+ pro','− proti']},{t:'Možnost B',c:['+ pro','− proti']}]},
+  'Pro / proti':{t:'Téma',c:[{t:'Pro',c:['+ …','+ …']},{t:'Proti',c:['− …','− …']}]},
+};
+const tplNode=n=>typeof n==='string'?{t:n,c:[]}:{t:n.t,c:n.c||[]};
+function addTpl(node,parentId,x,y){ node=tplNode(node); const it={id:uid(),text:node.t,status:'todo',assignees:[],parentId:parentId||null,sectionIds:activeSec?[activeSec]:[],x,y,images:[]};
+  state.items.push(it); const n=node.c.length, ky=y-((n-1)*96)/2; node.c.forEach((k,i)=>addTpl(k,it.id,x+215,ky+i*96)); return it; }
+function insertTemplate(name){ const spec=TEMPLATES[name]; if(!spec) return; const cx=(mapwrap.clientWidth/2-view.x)/view.k, cy=(mapwrap.clientHeight/2-view.y)/view.k;
+  const root=addTpl(spec,null,cx,cy); commit(); renderAll(); selectNode(root.id); }
+function openTemplateMenu(e){ const m=$('#popMenu'); m.innerHTML=''; const hd=document.createElement('div'); hd.className='mhd'; hd.textContent='Vložit šablonu'; m.appendChild(hd);
+  for(const name of Object.keys(TEMPLATES)){ const b=document.createElement('button'); b.textContent=name; b.onclick=()=>{ insertTemplate(name); m.style.display='none'; }; m.appendChild(b); }
+  showPopAt(m,e.clientX,e.clientY); }
+
+/* ---------- pan/zoom/keys ---------- */
+mapwrap.addEventListener('pointerdown',e=>{ if(e.target.closest('.node')||e.target.classList.contains('nport')) return;
+  if(selId){ selId=null; world.querySelectorAll('.node.sel').forEach(c=>c.classList.remove('sel')); renderTasks(); renderEdges(); }
+  const sx=e.clientX,sy=e.clientY,ox=view.x,oy=view.y; const move=ev=>{ view.x=ox+(ev.clientX-sx); view.y=oy+(ev.clientY-sy); applyView(); };
+  const up=()=>{ removeEventListener('pointermove',move); removeEventListener('pointerup',up); }; addEventListener('pointermove',move); addEventListener('pointerup',up); });
+mapwrap.addEventListener('dblclick',e=>{ if(e.target.closest('.node')) return; const w=worldFromEvent(e); const c=addItem({x:w.x,y:w.y}); editOnMap(c.id); });
+mapwrap.addEventListener('contextmenu',e=>{ if(e.target.closest('.node')) return; e.preventDefault(); const w=worldFromEvent(e); const m=$('#popMenu'); m.innerHTML='';
+  const add=(h,fn,cls)=>{ const b=document.createElement('button'); if(cls) b.className=cls; b.textContent=h; b.onclick=()=>fn(); m.appendChild(b); };
+  add('Nová položka',()=>{ m.style.display='none'; const c=addItem({x:w.x,y:w.y}); editOnMap(c.id); });
+  const hd=document.createElement('div'); hd.className='mhd'; hd.textContent='Šablona'; m.appendChild(hd);
+  for(const name of Object.keys(TEMPLATES)){ add(name,()=>{ m.style.display='none'; insertTemplate(name); }); }
+  const sp=document.createElement('div'); sp.className='msep'; m.appendChild(sp);
+  add('Rozložit (auto)',()=>{ m.style.display='none'; layeredLayout(); });
+  add('Vycentrovat',()=>{ m.style.display='none'; fit(); });
+  showPopAt(m,e.clientX,e.clientY); });
+mapwrap.addEventListener('wheel',e=>{ e.preventDefault(); const r=mapwrap.getBoundingClientRect(),mx=e.clientX-r.left,my=e.clientY-r.top; const f=e.deltaY<0?1.1:1/1.1,nk=Math.min(2.5,Math.max(0.22,view.k*f)); view.x=mx-(mx-view.x)*(nk/view.k); view.y=my-(my-view.y)*(nk/view.k); view.k=nk; applyView(); },{passive:false});
+addEventListener('keydown',e=>{ const ae=document.activeElement; if(ae&&ae.getAttribute&&ae.getAttribute('contenteditable')==='true') return; const tag=(ae?.tagName||'').toLowerCase(); if(tag==='input'||tag==='select') return; if(!selId) return;
+  if(e.key==='Tab'){ e.preventDefault(); const c=addItem({parentId:selId}); editOnMap(c.id); }
+  else if(e.key==='Enter'){ e.preventDefault(); const p=itemById(selId); const c=addItem({parentId:p.parentId}); editOnMap(c.id); }
+  else if(e.key==='Delete'||e.key==='Backspace'){ e.preventDefault(); deleteItem(selId); }
+  else if(e.key==='F2'){ const it=itemById(selId); if(it) startEdit(it); }
+  else if(e.key.length===1&&!e.ctrlKey&&!e.metaKey){ const it=itemById(selId); if(it){ const el=elFor(it.id); el.querySelector('.ntxt').textContent=''; startEdit(it); } } });
+
+/* ---------- chips ---------- */
+function renderSecbar(){ const bar=$('#secbar'); bar.innerHTML='';
+  for(const s of state.sections){ const chip=document.createElement('div'); chip.className='chip'+(focusSec===s.id?' focus':'');
+    chip.innerHTML=`<span class="cdot" style="background:${s.color}"></span><span>${s.icon} ${s.name}</span><span class="cedit">✎</span>`;
+    chip.onclick=ev=>{ if(ev.target.classList.contains('cedit')){ openSecEdit(ev,s); return; } if(selId){ toggleSection(selId,s.id); activeSec=s.id; return; } activeSec=s.id; focusSec=focusSec===s.id?null:s.id; renderSecbar(); renderMap(); if(focusSec) fit(s.id); };
+    bar.appendChild(chip); }
+  const add=document.createElement('div'); add.className='chip addsec'; add.textContent='＋ sekce';
+  add.onclick=()=>{ const n=prompt('Název sekce:'); if(!n) return; const s={id:uid(),name:n.trim(),icon:'•',color:PALETTE[state.sections.length%PALETTE.length]}; state.sections.push(s); activeSec=s.id; commit(); renderAll(); }; bar.appendChild(add); }
+function openSecEdit(ev,s){ ev.stopPropagation(); const m=$('#popMenu'); m.innerHTML='';
+  const mk=(t,fn)=>{ const b=document.createElement('button'); b.textContent=t; b.onclick=()=>{ fn(); m.style.display='none'; }; return b; };
+  m.appendChild(mk('Přejmenovat',()=>{ const n=prompt('Název:',s.name); if(n){ s.name=n.trim(); commit(); renderAll(); } }));
+  m.appendChild(mk('Ikona',()=>{ const n=prompt('Ikona/emoji (nebo nech prázdné):',s.icon); if(n!==null){ s.icon=n.trim()||'•'; commit(); renderAll(); } }));
+  const ch=document.createElement('div'); ch.className='mhd'; ch.textContent='Barva'; m.appendChild(ch);
+  const pal=document.createElement('div'); pal.className='pal'; for(const c of PALETTE){ const d=document.createElement('div'); d.className='c'; d.style.background=c; d.onclick=()=>{ s.color=c; commit(); renderAll(); m.style.display='none'; }; pal.appendChild(d); } m.appendChild(pal);
+  const sp=document.createElement('div'); sp.className='msep'; m.appendChild(sp);
+  const del=mk('Smazat sekci',()=>{ if(confirm('Smazat sekci? Položky o ni přijdou.')){ state.sections=state.sections.filter(x=>x.id!==s.id); state.items.forEach(i=>{ const a=itemSecIds(i); if(a.includes(s.id)) setSecIds(i,a.filter(x=>x!==s.id)); }); if(activeSec===s.id) activeSec=state.sections[0]?.id||null; if(focusSec===s.id) focusSec=null; commit(); renderAll(); } }); del.className='danger'; m.appendChild(del);
+  showPop(m,ev.target); }
+
+/* ---------- detail panel (notebook + materiál) ---------- */
+let detailId=null, commitTimer=null;
+function debCommit(){ clearTimeout(commitTimer); commitTimer=setTimeout(()=>commit(),400); }
+function safeNum(s){ s=String(s).trim(); if(!s) return 0; if(!/^[-+*/(). 0-9]+$/.test(s)) return 0; try{ const v=Function('"use strict";return('+s+')')(); return isFinite(v)?v:0; }catch{ return 0; } }
+const fmtN=n=>Number.isInteger(n)?n:Math.round(n*100)/100;
+function openDetail(id){ const it=itemById(id); if(!it) return; detailId=id; if(!it.materials) it.materials=[]; if(it.mult==null) it.mult=1; it.images=(it.images||[]).map(imgObj);
+  $('#dTitle').textContent=it.text||'Položka'; $('#dNotes').value=it.notes||''; $('#dMult').value=it.mult; $('#dCols').value=it.imgCols||''; renderMats(); renderImages(); $('#detail').classList.add('open'); }
+function blobToScaled(blob,max=1100){ return new Promise(res=>{ const img=new Image(); img.onload=()=>{ let w=img.width,h=img.height; if(w>max||h>max){ const s=max/Math.max(w,h); w=Math.round(w*s); h=Math.round(h*s); } const c=document.createElement('canvas'); c.width=w; c.height=h; c.getContext('2d').drawImage(img,0,0,w,h); try{ res(c.toDataURL('image/jpeg',0.85)); }catch{ res(null); } }; img.onerror=()=>res(null); img.src=URL.createObjectURL(blob); }); }
+function imgObj(x){ return typeof x==='string'?{src:x,cap:''}:(x&&x.src?x:{src:'',cap:''}); }
+function addImageToItem(id,url){ const it=itemById(id); if(!it) return; if(!it.images) it.images=[]; it.images.push({src:url,cap:''}); commit(); renderMap(); if(detailId===id) renderImages(); }
+function pickImages(){ const inp=document.createElement('input'); inp.type='file'; inp.accept='image/*'; inp.multiple=true; inp.onchange=async()=>{ if(!detailId) return; for(const f of inp.files){ const url=await blobToScaled(f); if(url) addImageToItem(detailId,url); } }; inp.click(); }
+function renderImages(){ const it=itemById(detailId); if(!it) return; it.images=(it.images||[]).map(imgObj); const box=$('#dImgs'); box.innerHTML='';
+  it.images.forEach((im,i)=>{ const th=document.createElement('div'); th.className='th'; th.draggable=true;
+    th.innerHTML=`<img src="${im.src}" draggable="false"><div class="x">×</div>`;
+    th.querySelector('img').onclick=()=>lightbox(it.images,i);
+    th.querySelector('.x').onclick=e=>{ e.stopPropagation(); it.images.splice(i,1); commit(); renderImages(); renderMap(); };
+    th.ondragstart=e=>{ e.dataTransfer.setData('mbtimg',String(i)); e.dataTransfer.effectAllowed='move'; };
+    th.ondragover=e=>{ if([...e.dataTransfer.types].includes('mbtimg')) e.preventDefault(); };
+    th.ondrop=e=>{ const f=e.dataTransfer.getData('mbtimg'); if(f==='') return; e.preventDefault(); e.stopPropagation(); const from=+f; if(from===i) return; const [m]=it.images.splice(from,1); it.images.splice(i,0,m); commit(); renderImages(); renderMap(); };
+    box.appendChild(th); });
+  const add=document.createElement('div'); add.className='th addimg'; add.textContent='＋'; add.title='Přidat obrázky'; add.onclick=pickImages; box.appendChild(add); }
+function lightbox(imgs,idx){ if(typeof imgs==='string') imgs=[imgs]; let i=idx||0; const d=document.createElement('div'); d.className='lightbox';
+  const render=()=>{ const c=imgObj(imgs[i]); const meta=(imgs.length>1?(i+1)+'/'+imgs.length:'')+(c.cap?((imgs.length>1?' · ':'')+escapeHtml(c.cap)):'');
+    d.innerHTML=`${imgs.length>1?'<div class="lbnav lbprev">‹</div>':''}<img src="${c.src}">${imgs.length>1?'<div class="lbnav lbnext">›</div>':''}${meta?'<div class="lbcount">'+meta+'</div>':''}`;
+    d.querySelector('img').onclick=e=>e.stopPropagation();
+    const pv=d.querySelector('.lbprev'), nx=d.querySelector('.lbnext');
+    if(pv) pv.onclick=e=>{e.stopPropagation(); i=(i-1+imgs.length)%imgs.length; render();};
+    if(nx) nx.onclick=e=>{e.stopPropagation(); i=(i+1)%imgs.length; render();}; };
+  render(); d.onclick=()=>{ d.remove(); removeEventListener('keydown',key); };
+  const key=e=>{ if(e.key==='Escape'){ d.remove(); removeEventListener('keydown',key); } else if(e.key==='ArrowLeft'&&imgs.length>1){ i=(i-1+imgs.length)%imgs.length; render(); } else if(e.key==='ArrowRight'&&imgs.length>1){ i=(i+1)%imgs.length; render(); } };
+  addEventListener('keydown',key); document.body.appendChild(d); }
+function closeDetail(){ detailId=null; $('#detail').classList.remove('open'); }
+function renderMats(){ const it=itemById(detailId); if(!it) return; const box=$('#dMats'); box.innerHTML='';
+  it.materials.forEach((mt,i)=>{ const r=document.createElement('div'); r.className='matrow';
+    const esc=s=>String(s==null?'':s).replace(/"/g,'&quot;');
+    r.innerHTML=`<input class="mn" placeholder="materiál" value="${esc(mt.n)}"><input class="mq" placeholder="0" value="${esc(mt.q)}"><span class="mqv"></span><button class="mdel">×</button>`;
+    const upd=()=>{ r.querySelector('.mqv').textContent='= '+fmtN(safeNum(mt.q)*(safeNum(it.mult)||1)); };
+    r.querySelector('.mn').oninput=e=>{ mt.n=e.target.value; debCommit(); };
+    r.querySelector('.mq').oninput=e=>{ mt.q=e.target.value; upd(); renderTotal(); debCommit(); };
+    r.querySelector('.mdel').onclick=()=>{ it.materials.splice(i,1); commit(); renderMats(); };
+    box.appendChild(r); upd(); });
+  renderTotal(); }
+function renderTotal(){ const it=itemById(detailId); if(!it) return; const mult=safeNum(it.mult)||1;
+  const sum=it.materials.reduce((a,m)=>a+safeNum(m.q),0)*mult; const kinds=it.materials.filter(m=>(m.n||'').trim()||safeNum(m.q)).length;
+  $('#dTotal').textContent=`Σ ${fmtN(sum)} ks · ${kinds} druhů`+(mult!==1?` (× ${fmtN(mult)})`:''); }
+$('#dClose').onclick=closeDetail;
+$('#dNotes').oninput=e=>{ const it=itemById(detailId); if(it){ it.notes=e.target.value; debCommit(); } };
+$('#dMult').oninput=e=>{ const it=itemById(detailId); if(it){ it.mult=e.target.value; renderMats(); debCommit(); } };
+$('#dAddMat').onclick=()=>{ const it=itemById(detailId); if(it){ it.materials.push({n:'',q:''}); commit(); renderMats(); $('#dMats').querySelector('.matrow:last-child .mn')?.focus(); } };
+
+function openBuildLog(){ const agg={}; let grand=0;
+  for(const it of state.items){ const mult=safeNum(it.mult)||1; if(!it.materials) continue;
+    for(const mm of it.materials){ const name=(mm.n||'').trim(); if(!name) continue; const q=safeNum(mm.q)*mult; if(!q) continue;
+      const k=name.toLowerCase(); if(!agg[k]) agg[k]={name,total:0,from:new Set()}; agg[k].total+=q; if(it.text) agg[k].from.add(it.text); grand+=q; } }
+  const rows=Object.values(agg).sort((a,b)=>b.total-a.total); const list=$('#blogList');
+  list.innerHTML = rows.length?'':'<div style="color:var(--muted);font-size:13px;padding:10px 0">Zatím žádný materiál. Přidej ho přes 📋 u položek.</div>';
+  for(const r of rows){ const d=document.createElement('div'); d.className='blogrow';
+    d.innerHTML=`<span class="bn">${escapeHtml(r.name)}<div class="bsrc">${escapeHtml([...r.from].slice(0,3).join(', '))}${r.from.size>3?'…':''}</div></span><span class="bq">${fmtN(r.total)}</span>`;
+    list.appendChild(d); }
+  $('#blogTotal').textContent=`Celkem ${fmtN(grand)} ks · ${rows.length} druhů`; $('#blogModal').style.display='flex'; }
+$('#dAddImg').onclick=pickImages;
+$('#dCols').onchange=e=>{ const it=itemById(detailId); if(it){ it.imgCols=e.target.value?+e.target.value:null; commit(); renderMap(); } };
+(()=>{ const dz=$('#dImgs');
+  dz.addEventListener('dragover',e=>{ if([...e.dataTransfer.types].includes('Files')){ e.preventDefault(); dz.classList.add('drop'); } });
+  dz.addEventListener('dragleave',e=>{ if(e.target===dz) dz.classList.remove('drop'); });
+  dz.addEventListener('drop',async e=>{ const fs=[...(e.dataTransfer.files||[])].filter(f=>f.type.startsWith('image/')); if(!fs.length) return; e.preventDefault(); dz.classList.remove('drop'); if(!detailId) return; for(const f of fs){ const url=await blobToScaled(f); if(url) addImageToItem(detailId,url); } });
+})();
+addEventListener('paste',async e=>{ const items=[...(e.clipboardData?.items||[])]; const im=items.find(i=>i.type.startsWith('image/')); if(!im) return;
+  const blob=im.getAsFile(); if(!blob) return; e.preventDefault(); const url=await blobToScaled(blob); if(!url) return;
+  let target=detailId||selId;
+  if(!target){ const w={x:(mapwrap.clientWidth/2-view.x)/view.k,y:(mapwrap.clientHeight/2-view.y)/view.k}; target=addItem({x:w.x,y:w.y}).id; }
+  addImageToItem(target,url); });
+$('#btnBlog').onclick=openBuildLog;
+$('#shClose').onclick=()=>$('#shareModal').style.display='none';
+$('#shEnable').onclick=enableShare; $('#shDisable').onclick=disableShare; $('#shInvite').onclick=inviteLink;
+$('#shareModal').addEventListener('pointerdown',e=>{ if(e.target.id==='shareModal') $('#shareModal').style.display='none'; });
+$('#blogClose').onclick=()=>$('#blogModal').style.display='none';
+$('#blogModal').addEventListener('pointerdown',e=>{ if(e.target.id==='blogModal') $('#blogModal').style.display='none'; });
+
+/* ---------- render all ---------- */
+function renderAll(){ rebuildSectionSelect(); renderSecbar(); renderTasks(); renderMap(); if(detailId){ const it=itemById(detailId); if(it) $('#dTitle').textContent=it.text||'Položka'; else closeDetail(); } }
+function rebuildSectionSelect(){ const sel=$('#taskSection'); const cur=sel.value; sel.innerHTML=''; for(const s of state.sections){ const o=document.createElement('option'); o.value=s.id; o.textContent=`${s.icon} ${s.name}`; sel.appendChild(o); } if(cur&&sectionById(cur)) sel.value=cur; else if(activeSec) sel.value=activeSec; }
+
+/* ---------- wires ---------- */
+$('#taskInput').addEventListener('keydown',e=>{ if(e.key==='Enter'&&e.target.value.trim()){ const sv=$('#taskSection').value; addItem({text:e.target.value.trim(),sectionIds:sv?[sv]:[]}); e.target.value=''; } });
+$('#btnFit').onclick=()=>fit(); $('#btnTidy').onclick=layeredLayout; $('#btnTpl').onclick=openTemplateMenu;
+$('#btnZoomIn').onclick=()=>{ view.k=Math.min(2.5,view.k*1.15); applyView(); }; $('#btnZoomOut').onclick=()=>{ view.k=Math.max(0.22,view.k/1.15); applyView(); };
+$('#btnShare').onclick=openShare;
+$('#sortBtns').querySelectorAll('button').forEach(b=>b.onclick=()=>{ sortMode=b.dataset.sort; $('#sortBtns').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b)); renderTasks(); });
+$('#nowBtn').onclick=()=>{ onlyDoing=!onlyDoing; $('#nowBtn').classList.toggle('on',onlyDoing); renderTasks(); };
+
+/* ---------- join ---------- */
+function buildColors(){ const box=$('#joinColors'); let pick=PALETTE[0]; PALETTE.slice(0,6).forEach((c,i)=>{ const d=document.createElement('div'); d.className='c'+(i===0?' sel':''); d.style.background=c; d.onclick=()=>{ pick=c; [...box.children].forEach(x=>x.classList.remove('sel')); d.classList.add('sel'); }; box.appendChild(d); }); return ()=>pick; }
+function start(){
+  const sh=(location.hash.match(/share=([^&]+)/)||[])[1];
+  if(sh){ try{ const o=JSON.parse(decodeURIComponent(escape(atob(sh)))); if(o.url&&o.key){ localStorage.setItem('mbt:supa',JSON.stringify({url:o.url,key:o.key})); if(o.room){ $('#joinRoom').value=o.room; location.hash='room='+encodeURIComponent(o.room); } } }catch(e){ console.error('invite',e); } }
+  const hr=(location.hash.match(/room=([^&]+)/)||[])[1]; if(hr) $('#joinRoom').value=decodeURIComponent(hr); const gc=buildColors(); const sv=JSON.parse(localStorage.getItem('mbt:me')||'null'); if(sv) $('#joinName').value=sv.name;
+  $('#joinBtn').onclick=()=>{ me={name:($('#joinName').value.trim()||'Hráč'),color:gc()}; room=$('#joinRoom').value.trim()||'meatball'; localStorage.setItem('mbt:me',JSON.stringify(me)); location.hash='room='+encodeURIComponent(room); join(); };
+  $('#joinName').addEventListener('keydown',e=>{ if(e.key==='Enter')$('#joinBtn').click(); }); }
+async function join(){ $('#joinModal').style.display='none'; $('#roomInfo').textContent='· '+room;
+  const creds=getSupaCreds();
+  sync = (creds&&creds.url&&creds.key) ? new SupabaseSync(creds.url,creds.key,room) : new LocalSync(room);
+  let l=null; try{ l=await sync.load(); }catch(e){ console.error(e); alert('Sdílení se nepřipojilo ('+e.message+'), jedu lokálně. Zkontroluj URL/klíč v „Sdílet".'); sync=new LocalSync(room); l=sync.load(); }
+  if(l){ state=l; if(!state.sections?.length) state.sections=DEFAULT_SECTIONS.map(s=>({...s})); if(!state.items) state.items=[]; if(!state.members) state.members=[]; }
+  else state={ sections:DEFAULT_SECTIONS.map(s=>({...s})), items:[], members:[], rev:0 };
+  if(!state.members.some(m=>m.name===me.name)) state.members.push({name:me.name,color:me.color});
+  activeSec=state.sections[0]?.id||null; commit(); sync.subscribe(onRemote); renderPresence(); renderAll(); fit(); updateShareUI(); }
+function updateShareUI(){ const on=sync instanceof SupabaseSync; $('#btnShare').textContent=on?'🟢 Sdílení':'Sdílet'; }
+function openShare(){ const c=getSupaCreds()||{}; $('#shUrl').value=c.url||''; $('#shKey').value=c.key||''; $('#shRoom').value=room; $('#shStatus').textContent=(sync instanceof SupabaseSync)?'🟢 Zapnuté – brácha se stejným odkazem vidí totéž živě':'⚪ Zatím jen lokálně'; $('#shareModal').style.display='flex'; }
+async function enableShare(){ const url=$('#shUrl').value.trim(), key=$('#shKey').value.trim(), rm=$('#shRoom').value.trim()||'meatball';
+  if(!url||!key){ alert('Vyplň Project URL a anon key.'); return; }
+  const ns=new SupabaseSync(url,key,rm); let remote=null;
+  try{ remote=await ns.load(); }catch(e){ alert('Nepřipojilo se ('+e.message+'). Zkontroluj URL/klíč a že jsi spustil ten SQL (tabulka boards).'); return; }
+  localStorage.setItem('mbt:supa',JSON.stringify({url,key})); localStorage.removeItem('mbt:nosupa'); room=rm; location.hash='room='+encodeURIComponent(room); $('#roomInfo').textContent='· '+room;
+  if(sync&&sync.stop) sync.stop();
+  if(remote){ state=remote; if(!state.sections?.length) state.sections=DEFAULT_SECTIONS.map(s=>({...s})); if(!state.members) state.members=[]; }
+  if(!state.members.some(m=>m.name===me.name)) state.members.push({name:me.name,color:me.color});
+  sync=ns; commit(); sync.subscribe(onRemote); renderPresence(); renderAll(); updateShareUI(); $('#shareModal').style.display='none'; alert('Sdílení zapnuté ✓  Pošli bráchovi zvací odkaz.'); }
+function disableShare(){ localStorage.removeItem('mbt:supa'); localStorage.setItem('mbt:nosupa','1'); if(sync&&sync.stop) sync.stop(); sync=new LocalSync(room); sync.subscribe(onRemote); updateShareUI(); $('#shareModal').style.display='none'; }
+function inviteLink(){ const c=getSupaCreds(); if(!c||!c.url){ alert('Nejdřív zapni sdílení.'); return; } const p=btoa(unescape(encodeURIComponent(JSON.stringify({url:c.url,key:c.key,room})))); const link=location.origin+location.pathname+'#share='+p; navigator.clipboard?.writeText(link); $('#shInvite').textContent='Zkopírováno ✓'; setTimeout(()=>$('#shInvite').textContent='📋 Kopírovat zvací odkaz',1600); }
+function renderPresence(){ $('#presence').innerHTML=state.members.map(m=>`<span class="pchip"><span class="pdot" style="background:${m.color}"></span>${m.name}</span>`).join(''); }
+start();
+</script>
+</body>
+</html>
