@@ -201,7 +201,7 @@
         </div>
         <div id="world"></div>
         <svg class="edges" id="edges"></svg>
-        <div class="maphint">2× klik = položka · ＋ na bublině = napojená pod-položka · Tab=potomek · Enter=sourozenec · táhni z tečky = napojit · Del=smazat</div>
+        <div class="maphint">2× klik = položka · ＋ rodiče/potomek · Shift+táhni = celá skupina · táhni z tečky = napojit · Ctrl+Z zpět</div>
         <div class="drawer" id="detail">
           <div class="dhead"><span id="dTitle"></span><button id="dClose">×</button></div>
           <div class="dbody">
@@ -338,6 +338,12 @@ const childrenOf=id=>state.items.filter(i=>i.parentId===id);
 const roots=()=>state.items.filter(i=>!i.parentId||!itemById(i.parentId));
 const memberByName=nm=>state.members.find(m=>m.name===nm);
 function isAncestor(aId,bId){ let c=itemById(bId); let g=0; while(c&&g++<999){ if(c.parentId===aId) return true; c=itemById(c.parentId); } return false; }
+function componentOf(id){ const seen=new Set([id]), st=[id];
+  while(st.length){ const c=st.pop(); const it=itemById(c); const nb=[];
+    if(it){ if(it.parentId) nb.push(it.parentId); (it.links||[]).forEach(l=>nb.push(l)); }
+    state.items.forEach(x=>{ if(x.parentId===c||(x.links||[]).includes(c)) nb.push(x.id); });
+    nb.forEach(n=>{ if(itemById(n)&&!seen.has(n)){ seen.add(n); st.push(n); } }); }
+  return [...seen]; }
 function sectionColor(id){ const s=sectionById(id); return s?s.color:'#9aa0a6'; }
 const cssCol=v=>v.startsWith('var(')?(getComputedStyle(document.documentElement).getPropertyValue(v.slice(4,-1)).trim()||'#999'):v;
 
@@ -529,9 +535,14 @@ function wireNode(el,it){
       const up=()=>{ el.releasePointerCapture(e.pointerId); el.removeEventListener('pointermove',move); el.removeEventListener('pointerup',up); commit(); renderField(); };
       el.addEventListener('pointermove',move); el.addEventListener('pointerup',up); return;
     }
-    const s=worldFromEvent(e),ox=it.x,oy=it.y; let moved=false; el.setPointerCapture(e.pointerId);
-    const move=ev=>{ const w=worldFromEvent(ev); it.x=ox+(w.x-s.x); it.y=oy+(w.y-s.y); moved=true; el.style.left=it.x+'px'; el.style.top=it.y+'px'; renderEdges(); };
-    const up=()=>{ el.releasePointerCapture(e.pointerId); el.removeEventListener('pointermove',move); el.removeEventListener('pointerup',up); if(moved){ commit(); renderField(); } };
+    const s=worldFromEvent(e); let moved=false; el.setPointerCapture(e.pointerId);
+    const grp = e.shiftKey ? componentOf(it.id) : [it.id];
+    const origs = grp.map(gid=>{ const g=itemById(gid); return {id:gid,ox:g.x,oy:g.y}; });
+    const move=ev=>{ const w=worldFromEvent(ev); const dx=w.x-s.x, dy=w.y-s.y; moved=true;
+      for(const o of origs){ const g=itemById(o.id); if(!g) continue; g.x=o.ox+dx; g.y=o.oy+dy; const ge=elFor(o.id); if(ge){ ge.style.left=g.x+'px'; ge.style.top=g.y+'px'; } }
+      renderEdges(); };
+    const up=()=>{ el.releasePointerCapture(e.pointerId); el.removeEventListener('pointermove',move); el.removeEventListener('pointerup',up);
+      if(moved){ if(state.waypoints){ const ids=new Set(origs.map(o=>o.id)); for(const k of Object.keys(state.waypoints)){ const p=k.split('|'); if(ids.has(p[0])||ids.has(p[1])) delete state.waypoints[k]; } } commit(); renderField(); } };
     el.addEventListener('pointermove',move); el.addEventListener('pointerup',up);
   });
   el.addEventListener('pointermove',e=>{ if(e.buttons||txt.getAttribute('contenteditable')==='true') return; const rect=el.getBoundingClientRect(), th=11;
