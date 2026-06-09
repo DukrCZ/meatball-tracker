@@ -264,6 +264,23 @@ create policy "open" on boards
       </div>
     </div>
   </div>
+  <div class="modal" id="treeModal" style="display:none">
+    <div class="card" style="width:460px;">
+      <h1>Strom z textu</h1>
+      <p>Napiš celý strom. <b>Odsazení = úroveň</b> (2 mezery nebo Tab). Cíl nahoře, jeho vstupy odsazené pod ním.</p>
+      <textarea id="treeText" spellcheck="false" style="width:100%; height:220px; border:1px solid var(--line); border-radius:9px; padding:10px; font-family:monospace; font-size:13px; resize:vertical; outline:none;" placeholder="EMBee
+  Arcane
+    Esoteric
+    Mysterious
+  Ethereal
+    Charmed
+    Eldritch"></textarea>
+      <div style="display:flex; gap:8px; margin-top:14px;">
+        <button class="btn primary" id="treeCreate">Vytvořit strom</button>
+        <button class="btn" id="treeCancel" style="margin-left:auto;">Zrušit</button>
+      </div>
+    </div>
+  </div>
   <div class="modal" id="joinModal">
     <div class="card">
       <h1>🍝 Meatball Tracker</h1>
@@ -677,22 +694,35 @@ function insertBreedingTree(levels){ levels=Math.max(2,Math.min(6,levels||4));
   for(let L=0;L<levels;L++){ rows[L]=[]; const count=2**L; for(let i=0;i<count;i++) rows[L].push({ id:uid(), text:'?', status:'todo', assignees:[], parentId:null, links:[], sectionIds:activeSec?[activeSec]:[], x:0, y:cyTop+L*vgap, images:[] }); }
   const leaves=rows[levels-1]; const startX=cx-(leaves.length-1)*spacing/2; leaves.forEach((n,i)=>n.x=startX+i*spacing);
   for(let L=levels-2;L>=0;L--) rows[L].forEach((n,i)=>{ const a=rows[L+1][2*i], b=rows[L+1][2*i+1]; n.x=(a.x+b.x)/2; });
-  for(let L=0;L<levels-1;L++) rows[L].forEach((n,i)=>{ const a=rows[L+1][2*i], b=rows[L+1][2*i+1]; n.parentId=a.id; n.links=[b.id]; });
+  for(let L=0;L<levels-1;L++) rows[L].forEach((n,i)=>{ rows[L+1][2*i].parentId=n.id; rows[L+1][2*i+1].parentId=n.id; });
   rows.flat().forEach(n=>state.items.push(n)); state.layoutDir='down'; commit(); renderAll(); selectNode(rows[0][0].id); fit(); }
 function generateBreedingTree(rootId,levels){ const root=itemById(rootId); if(!root) return; levels=Math.max(2,Math.min(6,levels||4));
   const spacing=112, vgap=120; const rows=[[root]];
   for(let L=1;L<levels;L++){ rows[L]=[]; for(let i=0;i<2**L;i++) rows[L].push({ id:uid(), text:'?', status:'todo', assignees:[], parentId:null, links:[], sectionIds:[...itemSecIds(root)], x:0, y:root.y+L*vgap, images:[] }); }
   const leaves=rows[levels-1]; const startX=root.x-(leaves.length-1)*spacing/2; leaves.forEach((n,i)=>n.x=startX+i*spacing);
   for(let L=levels-2;L>=1;L--) rows[L].forEach((n,i)=>{ n.x=(rows[L+1][2*i].x+rows[L+1][2*i+1].x)/2; });
-  for(let L=0;L<levels-1;L++) rows[L].forEach((n,i)=>{ const a=rows[L+1][2*i], b=rows[L+1][2*i+1];
-    if(L===0){ n.links=n.links||[]; if(!n.parentId) n.parentId=a.id; else n.links.push(a.id); n.links.push(b.id); }
-    else { n.parentId=a.id; n.links=[b.id]; } });
+  for(let L=0;L<levels-1;L++) rows[L].forEach((n,i)=>{ rows[L+1][2*i].parentId=n.id; rows[L+1][2*i+1].parentId=n.id; rows[L+1][2*i].links=[]; rows[L+1][2*i+1].links=[]; });
   rows.slice(1).flat().forEach(n=>state.items.push(n)); state.layoutDir='down'; commit(); renderAll(); selectNode(root.id); fit(); }
+function tidyTreeDown(rootId){ const root=itemById(rootId); if(!root) return; const seen=new Set(); const vgap=120,hgap=132; let cursor=0; const bx=root.x, by=root.y;
+  (function place(id,depth){ if(seen.has(id)) return; seen.add(id); const it=itemById(id); const kids=childrenOf(id).filter(k=>!seen.has(k.id)); it.y=by+depth*vgap;
+    if(!kids.length){ it.x=bx+cursor*hgap; cursor++; } else { kids.forEach(k=>place(k.id,depth+1)); const kx=kids.map(k=>itemById(k.id).x); it.x=(Math.min(...kx)+Math.max(...kx))/2; } })(rootId,0);
+  state.layoutDir='down'; commit(); renderAll(); fit(); }
+function buildTreeFromText(text){ const lines=text.split('\n').filter(l=>l.trim()); if(!lines.length) return;
+  const cx=(mapwrap.clientWidth/2-view.x)/view.k, cy=(mapwrap.clientHeight/2-view.y)/view.k;
+  const stack=[]; let firstRoot=null;
+  for(const line of lines){ const ind=(line.match(/^[\t ]*/)[0]).replace(/\t/g,'  ').length; const depth=Math.floor(ind/2);
+    const t=line.trim().replace(/^[-*+•]\s*/,''); if(!t) continue;
+    const parentId=depth>0?(stack[depth-1]||null):null;
+    const it={ id:uid(), text:t, status:'todo', assignees:[], parentId:parentId, links:[], sectionIds:activeSec?[activeSec]:[], x:cx, y:cy, images:[] };
+    state.items.push(it); stack[depth]=it.id; stack.length=depth+1; if(depth===0&&!firstRoot) firstRoot=it.id; }
+  state.layoutDir='down'; if(firstRoot){ tidyTreeDown(firstRoot); selectNode(firstRoot); } else { commit(); renderAll(); fit(); } }
 function openTemplateMenu(e){ const m=$('#popMenu'); m.innerHTML=''; const hd=document.createElement('div'); hd.className='mhd'; hd.textContent='Vložit šablonu'; m.appendChild(hd);
   for(const name of Object.keys(TEMPLATES)){ const b=document.createElement('button'); b.textContent=name; b.onclick=()=>{ insertTemplate(name); m.style.display='none'; }; m.appendChild(b); }
   const sp=document.createElement('div'); sp.className='msep'; m.appendChild(sp);
-  const bt=document.createElement('button'); bt.textContent='🐝 Breeding strom (rodokmen)…'; bt.onclick=()=>{ m.style.display='none'; const lv=parseInt(prompt('Kolik pater stromu? (2–6)\n2=1 mutace, 3=malej, 4=jako ta hra, 5=velkej','4'),10); if(lv) insertBreedingTree(lv); }; m.appendChild(bt);
+  const tt=document.createElement('button'); tt.textContent='📝 Strom z textu (napiš celý)'; tt.onclick=()=>{ m.style.display='none'; openTreeModal(); }; m.appendChild(tt);
+  const bt=document.createElement('button'); bt.textContent='🐝 Prázdný breeding strom…'; bt.onclick=()=>{ m.style.display='none'; const lv=parseInt(prompt('Kolik pater stromu? (2–6)\n4=jako ta hra','4'),10); if(lv) insertBreedingTree(lv); }; m.appendChild(bt);
   showPopAt(m,e.clientX,e.clientY); }
+function openTreeModal(){ $('#treeText').value=''; $('#treeModal').style.display='flex'; setTimeout(()=>$('#treeText').focus(),0); }
 
 /* ---------- pan/zoom/keys ---------- */
 mapwrap.addEventListener('pointerdown',e=>{ if(e.target.closest('.node')||e.target.classList.contains('nport')) return;
@@ -721,10 +751,7 @@ mapwrap.addEventListener('contextmenu',e=>{ if(e.target.closest('.node')) return
   add('Rozložit (auto)',()=>{ m.style.display='none'; layeredLayout(); });
   add('Vycentrovat',()=>{ m.style.display='none'; fit(); });
   showPopAt(m,e.clientX,e.clientY); });
-mapwrap.addEventListener('wheel',e=>{ e.preventDefault();
-  if(e.ctrlKey||e.metaKey){ const r=mapwrap.getBoundingClientRect(),mx=e.clientX-r.left,my=e.clientY-r.top; const f=e.deltaY<0?1.1:1/1.1,nk=Math.min(2.5,Math.max(0.22,view.k*f)); view.x=mx-(mx-view.x)*(nk/view.k); view.y=my-(my-view.y)*(nk/view.k); view.k=nk; }
-  else { view.x-=(e.shiftKey?e.deltaY:e.deltaX); view.y-=(e.shiftKey?0:e.deltaY); }
-  applyView(); },{passive:false});
+mapwrap.addEventListener('wheel',e=>{ e.preventDefault(); const r=mapwrap.getBoundingClientRect(),mx=e.clientX-r.left,my=e.clientY-r.top; const f=e.deltaY<0?1.1:1/1.1,nk=Math.min(2.5,Math.max(0.22,view.k*f)); view.x=mx-(mx-view.x)*(nk/view.k); view.y=my-(my-view.y)*(nk/view.k); view.k=nk; applyView(); },{passive:false});
 addEventListener('keydown',e=>{ const ae=document.activeElement; if(ae&&ae.getAttribute&&ae.getAttribute('contenteditable')==='true') return; const tag=(ae?.tagName||'').toLowerCase(); if(tag==='input'||tag==='select') return; if(!selId) return;
   if(e.key==='Tab'){ e.preventDefault(); const c=addItem({parentId:selId}); editOnMap(c.id); }
   else if(e.key==='Enter'){ e.preventDefault(); const p=itemById(selId); const c=addItem({parentId:p.parentId}); editOnMap(c.id); }
@@ -837,6 +864,9 @@ function rebuildSectionSelect(){ const sel=$('#taskSection'); const cur=sel.valu
 $('#taskInput').addEventListener('keydown',e=>{ if(e.key==='Enter'&&e.target.value.trim()){ const sv=$('#taskSection').value; addItem({text:e.target.value.trim(),sectionIds:sv?[sv]:[]}); e.target.value=''; } });
 $('#btnFit').onclick=()=>fit(); $('#btnTidy').onclick=layeredLayout; $('#btnTpl').onclick=openTemplateMenu;
 $('#btnUndo').onclick=undo; $('#btnRedo').onclick=redo;
+$('#treeCreate').onclick=()=>{ buildTreeFromText($('#treeText').value); $('#treeModal').style.display='none'; };
+$('#treeCancel').onclick=()=>$('#treeModal').style.display='none';
+$('#treeModal').addEventListener('pointerdown',e=>{ if(e.target.id==='treeModal') $('#treeModal').style.display='none'; });
 addEventListener('keydown',e=>{ const ae=document.activeElement; const editing=ae&&(ae.tagName==='INPUT'||ae.tagName==='TEXTAREA'||(ae.getAttribute&&ae.getAttribute('contenteditable')==='true'));
   if(e.code==='Space'&&!editing){ spaceDown=true; }
   if((e.key==='Delete'||e.key==='Backspace')&&selSet.size>1&&!editing){ e.preventDefault(); deleteSelection(); } });
