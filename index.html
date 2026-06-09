@@ -86,10 +86,13 @@
   .dilnabar .dlt { flex:1; font-weight:600; } .dilnabar button { padding:6px 12px; }
   #dbSearch { width:100%; padding:9px 11px; border:1px solid var(--line); border-radius:9px; outline:none; font-size:14px; }
   #dbSearch:focus { border-color:var(--accent); }
-  .dbrow { display:block; width:100%; text-align:left; border:1px solid var(--line); background:var(--panel); color:var(--text); border-radius:8px; padding:8px 11px; margin-bottom:5px; cursor:pointer; font-size:13.5px; }
-  .dbrow:hover { background:var(--hover); border-color:var(--accent); }
+  .dbrow { display:flex; align-items:center; gap:10px; width:100%; border:1px solid var(--line); background:var(--panel); color:var(--text); border-radius:8px; padding:7px 11px; margin-bottom:5px; font-size:13.5px; }
+  .dbrow .dbinfo { flex:1; cursor:pointer; min-width:0; }
+  .dbrow .dbinfo:hover b { color:var(--accent); }
   .dbrow .dbmod { font-size:10px; color:var(--muted); margin-left:6px; }
   .dbrow .dbrec { font-size:11px; color:var(--muted); margin-top:2px; }
+  .dbrow .dbown { width:24px; height:24px; flex:none; border-radius:6px; border:2px solid var(--line); display:flex; align-items:center; justify-content:center; cursor:pointer; color:var(--muted); font-size:13px; }
+  .dbrow .dbown.on { background:var(--st-done); border-color:var(--st-done); color:#fff; }
   .node.done { background:var(--donebg); } .node.stopped { opacity:.55; }
   .node.flash { animation:flash 1.1s ease; }
   @keyframes flash { 0%,100%{box-shadow:var(--shadow);} 30%{box-shadow:0 0 0 6px rgba(26,115,232,.4);} }
@@ -785,9 +788,12 @@ function renderDbList(q){ const list=$('#dbList'); list.innerHTML=''; q=(q||'').
   if(q) entries=entries.filter(e=>e.name.toLowerCase().includes(q)||e.key.toLowerCase().includes(q));
   entries.sort((a,b)=>(a.mod==='MeatballCraft'?-1:0)-(b.mod==='MeatballCraft'?-1:0)||a.name.localeCompare(b.name));
   if(!entries.length){ list.innerHTML='<div style="color:var(--muted);padding:10px">Nic nenalezeno.</div>'; return; }
-  for(const e of entries.slice(0,150)){ const r=beeDB.recipes[e.key]; const b=document.createElement('button'); b.className='dbrow';
-    b.innerHTML=`<b>${escapeHtml(e.name)}</b><span class="dbmod">${e.mod}</span>${r?`<div class="dbrec">= ${escapeHtml(beeName(r[0]))} + ${escapeHtml(beeName(r[1]))}</div>`:''}`;
-    b.onclick=()=>showDbPreview(e.key); list.appendChild(b); } }
+  const owned=new Set(state.owned||[]);
+  for(const e of entries.slice(0,150)){ const r=beeDB.recipes[e.key]; const own=owned.has(e.key); const row=document.createElement('div'); row.className='dbrow';
+    row.innerHTML=`<span class="dbown ${own?'on':''}" title="Mám tuhle včelu (strom se u ní zastaví)">${own?'✓':''}</span><span class="dbinfo"><b>${escapeHtml(e.name)}</b><span class="dbmod">${e.mod}</span>${r?`<div class="dbrec">= ${escapeHtml(beeName(r[0]))} + ${escapeHtml(beeName(r[1]))}</div>`:''}</span>`;
+    row.querySelector('.dbown').onclick=ev=>{ ev.stopPropagation(); toggleOwned(e.key); renderDbList($('#dbSearch').value); };
+    row.querySelector('.dbinfo').onclick=()=>showDbPreview(e.key); list.appendChild(row); } }
+function toggleOwned(key){ const s=new Set(state.owned||[]); s.has(key)?s.delete(key):s.add(key); state.owned=[...s]; commit(); }
 let dbCurrentKey=null;
 function showDbBrowse(){ $('#dbBrowse').style.display='flex'; $('#dbPreview').style.display='none'; $('#dbInsert').style.display='none'; $('#dbBack').style.display='none'; }
 function computeLayered(items, byId, vertical){
@@ -809,10 +815,10 @@ function computeLayered(items, byId, vertical){
   const xy={}; items.forEach(it=>xy[it.id]= vertical?{x:Y[it.id],y:N[it.id].layer*ROWV}:{x:N[it.id].layer*COLW,y:Y[it.id]});
   const wp={}; for(const e of chains) if(e.mids.length) wp[e.key]=e.mids.map(id=> vertical?{x:Y[id],y:N[id].layer*ROWV}:{x:N[id].layer*COLW,y:Y[id]});
   return {xy,wp,maxL}; }
-function showDbPreview(key){ dbCurrentKey=key;
+function showDbPreview(key){ dbCurrentKey=key; const owned=new Set(state.owned||[]);
   const items=[], byId={}; let count=0; const CAP=400;
-  (function build(k,anc,parentId){ if(count>=CAP) return; const it={id:uid(),text:beeName(k),parentId:parentId||null,x:0,y:0}; items.push(it); byId[it.id]=it; count++;
-    const r=beeDB.recipes[k]; if(r&&!anc.has(k)){ const a2=new Set(anc); a2.add(k); for(const p of r) build(p,a2,it.id); } })(key,new Set(),null);
+  (function build(k,anc,parentId){ if(count>=CAP) return; const own=owned.has(k); const it={id:uid(),text:beeName(k),parentId:parentId||null,x:0,y:0,own}; items.push(it); byId[it.id]=it; count++;
+    const r=beeDB.recipes[k]; if(r&&!own&&!anc.has(k)){ const a2=new Set(anc); a2.add(k); for(const p of r) build(p,a2,it.id); } })(key,new Set(),null);
   const rootId=items[0].id;
   const kids={}; items.forEach(it=>{ if(it.parentId)(kids[it.parentId]=kids[it.parentId]||[]).push(it.id); });
   const vgap=54,hgap=88; let cur=0; const seen=new Set();
@@ -824,16 +830,16 @@ function showDbPreview(key){ dbCurrentKey=key;
     let d; if(Math.abs(x2-x1)<2) d=`M${x1},${y1.toFixed(1)} L${x2},${y2.toFixed(1)}`;
     else d=`M${x1},${y1.toFixed(1)} L${x1},${(my-r).toFixed(1)} Q${x1},${my.toFixed(1)} ${(x1+hx*r).toFixed(1)},${my.toFixed(1)} L${(x2-hx*r).toFixed(1)},${my.toFixed(1)} Q${x2},${my.toFixed(1)} ${x2},${(my+r).toFixed(1)} L${x2},${y2.toFixed(1)}`;
     gg+=`<path d="${d}" fill="none" stroke="#8ab4f8" stroke-width="1.4"/>`; }
-  for(const it of items){ const root=it.id===rootId; gg+=`<g><title>${escapeHtml(it.text)}</title><rect x="${(PX(it)-NW/2).toFixed(1)}" y="${(PY(it)-NH/2).toFixed(1)}" width="${NW}" height="${NH}" rx="5" fill="${root?'#33405e':'#2a2c31'}" stroke="${root?'#8ab4f8':'#4b4f57'}"/><text x="${PX(it).toFixed(1)}" y="${(PY(it)+3.5).toFixed(1)}" text-anchor="middle" font-size="9.5" fill="#e8eaed">${escapeHtml(it.text).slice(0,12)}</text></g>`; }
+  for(const it of items){ const root=it.id===rootId; const fill=it.own?'#1e6e35':(root?'#33405e':'#2a2c31'), strk=it.own?'#46c46a':(root?'#8ab4f8':'#4b4f57'); gg+=`<g><title>${escapeHtml(it.text)}${it.own?' (máš)':''}</title><rect x="${(PX(it)-NW/2).toFixed(1)}" y="${(PY(it)-NH/2).toFixed(1)}" width="${NW}" height="${NH}" rx="5" fill="${fill}" stroke="${strk}"/><text x="${PX(it).toFixed(1)}" y="${(PY(it)+3.5).toFixed(1)}" text-anchor="middle" font-size="9.5" fill="#e8eaed">${escapeHtml(it.text).slice(0,12)}</text></g>`; }
   $('#dbPrevSvg').outerHTML=`<svg id="dbPrevSvg" viewBox="0 0 ${W.toFixed(0)} ${H.toFixed(0)}" width="100%" height="100%" preserveAspectRatio="xMidYMid meet" style="display:block; cursor:grab; touch-action:none"><g id="dbPrevG">${gg}</g></svg>`;
   const el=$('#dbPrevSvg'), grp=$('#dbPrevG'); let t={k:1,x:0,y:0}; const apply=()=>grp.setAttribute('transform',`translate(${t.x},${t.y}) scale(${t.k})`);
   el.addEventListener('wheel',e=>{ e.preventDefault(); const f=e.deltaY<0?1.12:1/1.12; t.k=Math.max(0.3,Math.min(4,t.k*f)); apply(); },{passive:false});
   el.addEventListener('pointerdown',e=>{ const sx=e.clientX,sy=e.clientY,ox=t.x,oy=t.y; el.setPointerCapture(e.pointerId); const mv=ev=>{ t.x=ox+(ev.clientX-sx); t.y=oy+(ev.clientY-sy); apply(); }; const up=()=>{ el.releasePointerCapture(e.pointerId); el.removeEventListener('pointermove',mv); el.removeEventListener('pointerup',up); }; el.addEventListener('pointermove',mv); el.addEventListener('pointerup',up); });
-  $('#dbPrevInfo').textContent=`${beeName(key)} — ${count} včel${count>=CAP?' (zkráceno)':''} · najeď myší = jméno · kolečko=zoom, táhni=posun`;
+  $('#dbPrevInfo').textContent=`${beeName(key)} — ${count} včel${count>=CAP?' (zkráceno)':''} · zeleně = už máš · najeď myší = jméno · kolečko=zoom`;
   $('#dbBrowse').style.display='none'; $('#dbPreview').style.display='flex'; $('#dbInsert').style.display=''; $('#dbBack').style.display=''; }
-function buildFromDB(targetKey){ if(!beeDB) return; const cx=(mapwrap.clientWidth/2-view.x)/view.k, cy=(mapwrap.clientHeight/2-view.y)/view.k; let count=0; const CAP=400; let rootId=null;
-  (function build(key,anc,parentId){ if(count>=CAP) return; const it={id:uid(),text:beeName(key),status:'todo',assignees:[],parentId:parentId||null,links:[],sectionIds:activeSec?[activeSec]:[],x:cx,y:cy,images:[]}; state.items.push(it); count++; if(!rootId) rootId=it.id;
-    const r=beeDB.recipes[key]; if(r&&!anc.has(key)){ const a2=new Set(anc); a2.add(key); for(const p of r) build(p,a2,it.id); } })(targetKey,new Set(),null);
+function buildFromDB(targetKey){ if(!beeDB) return; const cx=(mapwrap.clientWidth/2-view.x)/view.k, cy=(mapwrap.clientHeight/2-view.y)/view.k; let count=0; const CAP=400; let rootId=null; const owned=new Set(state.owned||[]);
+  (function build(key,anc,parentId){ if(count>=CAP) return; const own=owned.has(key); const it={id:uid(),text:beeName(key),status:own?'done':'todo',assignees:[],parentId:parentId||null,links:[],sectionIds:activeSec?[activeSec]:[],x:cx,y:cy,images:[]}; state.items.push(it); count++; if(!rootId) rootId=it.id;
+    const r=beeDB.recipes[key]; if(r&&!own&&!anc.has(key)){ const a2=new Set(anc); a2.add(key); for(const p of r) build(p,a2,it.id); } })(targetKey,new Set(),null);
   state.layoutDir='down'; tidyTreeDown(rootId); selectNode(rootId); }
 function createTreeFromForm(){ const cx=(mapwrap.clientWidth/2-view.x)/view.k, cy=(mapwrap.clientHeight/2-view.y)/view.k; let root=null;
   (function build(node,parentId){ const it={ id:uid(), text:(node.name||'').trim()||'?', status:'todo', assignees:[], parentId:parentId||null, links:[], sectionIds:activeSec?[activeSec]:[], x:cx, y:cy, images:[] }; state.items.push(it); if(!root) root=it; node.children.forEach(c=>build(c,it.id)); })(formTree,null);
@@ -1025,7 +1031,7 @@ async function join(){ $('#joinModal').style.display='none'; $('#roomInfo').text
   const creds=getSupaCreds();
   sync = (creds&&creds.url&&creds.key) ? new SupabaseSync(creds.url,creds.key,room) : new LocalSync(room);
   let l=null; try{ l=await sync.load(); }catch(e){ console.error(e); alert('Sdílení se nepřipojilo ('+e.message+'), jedu lokálně. Zkontroluj URL/klíč v „Sdílet".'); sync=new LocalSync(room); l=sync.load(); }
-  if(l){ state=l; if(!state.sections?.length) state.sections=DEFAULT_SECTIONS.map(s=>({...s})); if(!state.items) state.items=[]; if(!state.members) state.members=[]; }
+  if(l){ state=l; if(!state.sections?.length) state.sections=DEFAULT_SECTIONS.map(s=>({...s})); if(!state.items) state.items=[]; if(!state.members) state.members=[]; if(!state.owned) state.owned=[]; }
   else state={ sections:DEFAULT_SECTIONS.map(s=>({...s})), items:[], members:[], rev:0 };
   if(!state.members.some(m=>m.name===me.name)) state.members.push({name:me.name,color:me.color});
   activeSec=state.sections[0]?.id||null; commit(); sync.subscribe(onRemote); renderPresence(); renderAll(); fit(); updateShareUI(); }
@@ -1037,7 +1043,7 @@ async function enableShare(){ const url=$('#shUrl').value.trim(), key=$('#shKey'
   try{ remote=await ns.load(); }catch(e){ alert('Nepřipojilo se ('+e.message+'). Zkontroluj URL/klíč a že jsi spustil ten SQL (tabulka boards).'); return; }
   localStorage.setItem('mbt:supa',JSON.stringify({url,key})); localStorage.removeItem('mbt:nosupa'); room=rm; location.hash='room='+encodeURIComponent(room); $('#roomInfo').textContent='· '+room;
   if(sync&&sync.stop) sync.stop();
-  if(remote){ state=remote; if(!state.sections?.length) state.sections=DEFAULT_SECTIONS.map(s=>({...s})); if(!state.members) state.members=[]; }
+  if(remote){ state=remote; if(!state.sections?.length) state.sections=DEFAULT_SECTIONS.map(s=>({...s})); if(!state.members) state.members=[]; if(!state.owned) state.owned=[]; }
   if(!state.members.some(m=>m.name===me.name)) state.members.push({name:me.name,color:me.color});
   sync=ns; commit(); sync.subscribe(onRemote); renderPresence(); renderAll(); updateShareUI(); $('#shareModal').style.display='none'; alert('Sdílení zapnuté ✓  Pošli bráchovi zvací odkaz.'); }
 function disableShare(){ localStorage.removeItem('mbt:supa'); localStorage.setItem('mbt:nosupa','1'); if(sync&&sync.stop) sync.stop(); sync=new LocalSync(room); sync.subscribe(onRemote); updateShareUI(); $('#shareModal').style.display='none'; }
