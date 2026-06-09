@@ -365,7 +365,10 @@ function setStatus(id){ const it=itemById(id); if(!it) return; const k=STATE_CYC
 function setText(id,t){ const it=itemById(id); if(!it) return; it.text=t.trim()||'Položka'; commit(); }
 function itemSecIds(it){ const a=it.sectionIds||(it.sectionId!=null?[it.sectionId]:[]); return a.filter(id=>sectionById(id)); }
 function setSecIds(it,arr){ it.sectionIds=arr; if('sectionId' in it) delete it.sectionId; }
-function toggleSection(id,sec){ const it=itemById(id); if(!it) return; const a=itemSecIds(it); setSecIds(it, a.includes(sec)?a.filter(x=>x!==sec):[...a,sec]); commit(); renderAll(); }
+function addSectionDownstream(nodeId,sec){ const seen=new Set([nodeId]); const st=childrenOf(nodeId).map(c=>c.id); let g=0;
+  while(st.length&&g++<5000){ const c=st.pop(); if(seen.has(c)) continue; seen.add(c); const it=itemById(c); if(!it) continue; const a=itemSecIds(it); if(!a.includes(sec)) setSecIds(it,[...a,sec]); childrenOf(c).forEach(k=>st.push(k.id)); } }
+function toggleSection(id,sec){ const it=itemById(id); if(!it) return; const a=itemSecIds(it); const adding=!a.includes(sec);
+  setSecIds(it, adding?[...a,sec]:a.filter(x=>x!==sec)); if(adding) addSectionDownstream(id,sec); commit(); renderAll(); }
 function clearSections(id){ const it=itemById(id); if(!it) return; setSecIds(it,[]); commit(); renderAll(); }
 function rgb2hex(r,g,b){ const h=v=>('0'+Math.round(Math.max(0,Math.min(1,v))*255).toString(16)).slice(-2); return '#'+h(r)+h(g)+h(b); }
 function itemRYB(it){ const ids=itemSecIds(it); if(!ids.length) return null; let r=0,y=0,b=0; for(const id of ids){ const c=rgb2ryb(...hex2rgb(sectionColor(id))); r+=c[0];y+=c[1];b+=c[2]; } return [r/ids.length,y/ids.length,b/ids.length]; }
@@ -582,12 +585,12 @@ function renderEdges(){
     const stroke=lit?'#8ab4f8':'#5d626b', sw=lit?3:2, op=(reach&&!lit)?0.12:1, attrs=`fill="none" stroke="${stroke}" stroke-width="${sw}" stroke-opacity="${op}" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#${lit?'arL':'ar'})"`;
     const wp=state.waypoints&&state.waypoints[a.id+'|'+b.id];
     if(wp&&wp.length){ const pts=[{x:a.x+sa.w/2,y:a.y},...wp,{x:b.x-sb.w/2,y:b.y}].map(ts); return `<path d="${smoothPath(pts)}" ${attrs}/>`; }
-    let d; if(b.x>a.x+10){ const p1=ts({x:a.x+sa.w/2,y:a.y}),p2=ts({x:b.x-sb.w/2,y:b.y});
-      const midX=p1.x+Math.max(16,(p2.x-p1.x)*0.5),s=p2.y>p1.y?1:-1,r=Math.max(0,Math.min(12,Math.abs(p2.y-p1.y)/2,Math.abs(midX-p1.x),Math.abs(p2.x-midX)));
-      d=(Math.abs(p2.y-p1.y)<2||r<2)?`M${p1.x},${p1.y} L${p2.x},${p2.y}`:`M${p1.x},${p1.y} L${midX-r},${p1.y} Q${midX},${p1.y} ${midX},${p1.y+s*r} L${midX},${p2.y-s*r} Q${midX},${p2.y} ${midX+r},${p2.y} L${p2.x},${p2.y}`;
-    } else { const an=borderPoint(a.x,a.y,sa.w,sa.h,b.x,b.y),bn=borderPoint(b.x,b.y,sb.w,sb.h,a.x,a.y); const p1=ts(an),p2=ts(bn);
-      const ddx=p2.x-p1.x,ddy=p2.y-p1.y,len=Math.hypot(ddx,ddy)||1,bow=Math.min(22,len*0.13),cx=(p1.x+p2.x)/2+(-ddy/len)*bow,cy=(p1.y+p2.y)/2+(ddx/len)*bow; d=`M${p1.x},${p1.y} Q${cx},${cy} ${p2.x},${p2.y}`; }
-    return `<path d="${d}" ${attrs}/>`; };
+    const dxa=b.x-a.x, dya=b.y-a.y; let p1,p2,c1,c2;
+    if(Math.abs(dxa)>=Math.abs(dya)){ const sg=dxa>=0?1:-1, o=Math.max(28,Math.abs(dxa)*0.42);
+      p1=ts({x:a.x+sg*sa.w/2,y:a.y}); p2=ts({x:b.x-sg*sb.w/2,y:b.y}); c1=ts({x:a.x+sg*(sa.w/2+o),y:a.y}); c2=ts({x:b.x-sg*(sb.w/2+o),y:b.y}); }
+    else { const sg=dya>=0?1:-1, o=Math.max(28,Math.abs(dya)*0.42);
+      p1=ts({x:a.x,y:a.y+sg*sa.h/2}); p2=ts({x:b.x,y:b.y-sg*sb.h/2}); c1=ts({x:a.x,y:a.y+sg*(sa.h/2+o)}); c2=ts({x:b.x,y:b.y-sg*(sb.h/2+o)}); }
+    return `<path d="M${p1.x},${p1.y} C${c1.x},${c1.y} ${c2.x},${c2.y} ${p2.x},${p2.y}" ${attrs}/>`; };
   let base='',litS=''; const push=(a,b)=>{ const lit=!!(reach&&reach.has(a.id)); (lit?(litS+=draw(a,b,true)):(base+=draw(a,b,false))); };
   for(const it of state.items){ const a=it.parentId&&itemById(it.parentId); if(a) push(a,it);
     for(const lid of (it.links||[])){ const l=itemById(lid); if(l&&l.id!==it.parentId) push(l,it); } }
