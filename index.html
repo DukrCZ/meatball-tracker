@@ -93,6 +93,13 @@
   .dbrow .dbrec { font-size:11px; color:var(--muted); margin-top:2px; }
   .dbrow .dbown { width:24px; height:24px; flex:none; border-radius:6px; border:2px solid var(--line); display:flex; align-items:center; justify-content:center; cursor:pointer; color:var(--muted); font-size:13px; }
   .dbrow .dbown.on { background:var(--st-done); border-color:var(--st-done); color:#fff; }
+  .olrow { display:flex; align-items:center; gap:8px; padding:4px 6px; border-radius:6px; font-size:13px; white-space:nowrap; }
+  .olrow:hover { background:var(--hover); }
+  .olrow .oltri { width:14px; text-align:center; color:var(--muted); cursor:pointer; font-size:10px; flex:none; }
+  .olrow .olown { width:20px; height:20px; flex:none; border-radius:5px; border:2px solid var(--line); display:flex; align-items:center; justify-content:center; cursor:pointer; color:#fff; font-size:11px; }
+  .olrow .olown.on { background:var(--st-done); border-color:var(--st-done); }
+  .olrow .olname { cursor:pointer; font-weight:500; } .olrow.owned .olname { color:#46c46a; }
+  .olrow .olrec { font-size:11px; color:var(--muted); } .olrow .olrec.leaf { font-style:italic; opacity:.7; }
   .node.done { background:var(--donebg); } .node.stopped { opacity:.55; }
   .node.flash { animation:flash 1.1s ease; }
   @keyframes flash { 0%,100%{box-shadow:var(--shadow);} 30%{box-shadow:0 0 0 6px rgba(26,115,232,.4);} }
@@ -298,7 +305,7 @@ create policy "open" on boards
       </div>
       <div id="dbPreview" style="display:none; flex-direction:column; min-height:0; flex:1;">
         <div id="dbPrevInfo" style="font-size:12.5px; color:var(--muted); margin-bottom:8px;"></div>
-        <div style="flex:1; min-height:300px; overflow:hidden; background:var(--canvas); border:1px solid var(--line); border-radius:10px; padding:6px;"><svg id="dbPrevSvg"></svg></div>
+        <div id="dbOutline" style="flex:1; min-height:300px; overflow:auto; background:var(--canvas); border:1px solid var(--line); border-radius:10px; padding:6px;"></div>
       </div>
       <div style="display:flex; gap:8px; margin-top:12px;">
         <button class="btn primary" id="dbInsert" style="display:none">Vložit na mapu</button>
@@ -815,28 +822,21 @@ function computeLayered(items, byId, vertical){
   const xy={}; items.forEach(it=>xy[it.id]= vertical?{x:Y[it.id],y:N[it.id].layer*ROWV}:{x:N[it.id].layer*COLW,y:Y[it.id]});
   const wp={}; for(const e of chains) if(e.mids.length) wp[e.key]=e.mids.map(id=> vertical?{x:Y[id],y:N[id].layer*ROWV}:{x:N[id].layer*COLW,y:Y[id]});
   return {xy,wp,maxL}; }
-function showDbPreview(key){ dbCurrentKey=key; const owned=new Set(state.owned||[]);
-  const items=[], byId={}; let count=0; const CAP=400;
-  (function build(k,anc,parentId){ if(count>=CAP) return; const own=owned.has(k); const it={id:uid(),text:beeName(k),parentId:parentId||null,x:0,y:0,own}; items.push(it); byId[it.id]=it; count++;
-    const r=beeDB.recipes[k]; if(r&&!own&&!anc.has(k)){ const a2=new Set(anc); a2.add(k); for(const p of r) build(p,a2,it.id); } })(key,new Set(),null);
-  const rootId=items[0].id;
-  const kids={}; items.forEach(it=>{ if(it.parentId)(kids[it.parentId]=kids[it.parentId]||[]).push(it.id); });
-  const vgap=54,hgap=88; let cur=0; const seen=new Set();
-  (function place(id,d){ if(seen.has(id)) return; seen.add(id); const ch=kids[id]||[]; byId[id].y=d*vgap; if(!ch.length){ byId[id].x=cur*hgap; cur++; } else { ch.forEach(c=>place(c,d+1)); const xs=ch.map(c=>byId[c].x); byId[id].x=(Math.min(...xs)+Math.max(...xs))/2; } })(rootId,0);
-  const xs=items.map(i=>i.x), ys=items.map(i=>i.y); const minx=Math.min(...xs),maxx=Math.max(...xs),miny=Math.min(...ys),maxy=Math.max(...ys);
-  const NW=76,NH=19,pad=28; const W=(maxx-minx)+NW+pad*2, H=(maxy-miny)+NH+pad*2; const PX=i=>i.x-minx+pad, PY=i=>i.y-miny+pad;
-  let gg='';
-  for(const it of items){ if(!it.parentId) continue; const a=byId[it.parentId]; const x1=PX(a),y1=PY(a)+NH/2,x2=PX(it),y2=PY(it)-NH/2,my=(y1+y2)/2,hx=x2>=x1?1:-1,r=Math.min(7,Math.abs(x2-x1)/2,Math.abs(y2-y1)/2);
-    let d; if(Math.abs(x2-x1)<2) d=`M${x1},${y1.toFixed(1)} L${x2},${y2.toFixed(1)}`;
-    else d=`M${x1},${y1.toFixed(1)} L${x1},${(my-r).toFixed(1)} Q${x1},${my.toFixed(1)} ${(x1+hx*r).toFixed(1)},${my.toFixed(1)} L${(x2-hx*r).toFixed(1)},${my.toFixed(1)} Q${x2},${my.toFixed(1)} ${x2},${(my+r).toFixed(1)} L${x2},${y2.toFixed(1)}`;
-    gg+=`<path d="${d}" fill="none" stroke="#8ab4f8" stroke-width="1.4"/>`; }
-  for(const it of items){ const root=it.id===rootId; const fill=it.own?'#1e6e35':(root?'#33405e':'#2a2c31'), strk=it.own?'#46c46a':(root?'#8ab4f8':'#4b4f57'); gg+=`<g><title>${escapeHtml(it.text)}${it.own?' (máš)':''}</title><rect x="${(PX(it)-NW/2).toFixed(1)}" y="${(PY(it)-NH/2).toFixed(1)}" width="${NW}" height="${NH}" rx="5" fill="${fill}" stroke="${strk}"/><text x="${PX(it).toFixed(1)}" y="${(PY(it)+3.5).toFixed(1)}" text-anchor="middle" font-size="9.5" fill="#e8eaed">${escapeHtml(it.text).slice(0,12)}</text></g>`; }
-  $('#dbPrevSvg').outerHTML=`<svg id="dbPrevSvg" viewBox="0 0 ${W.toFixed(0)} ${H.toFixed(0)}" width="100%" height="100%" preserveAspectRatio="xMidYMid meet" style="display:block; cursor:grab; touch-action:none"><g id="dbPrevG">${gg}</g></svg>`;
-  const el=$('#dbPrevSvg'), grp=$('#dbPrevG'); let t={k:1,x:0,y:0}; const apply=()=>grp.setAttribute('transform',`translate(${t.x},${t.y}) scale(${t.k})`);
-  el.addEventListener('wheel',e=>{ e.preventDefault(); const f=e.deltaY<0?1.12:1/1.12; t.k=Math.max(0.3,Math.min(4,t.k*f)); apply(); },{passive:false});
-  el.addEventListener('pointerdown',e=>{ const sx=e.clientX,sy=e.clientY,ox=t.x,oy=t.y; el.setPointerCapture(e.pointerId); const mv=ev=>{ t.x=ox+(ev.clientX-sx); t.y=oy+(ev.clientY-sy); apply(); }; const up=()=>{ el.releasePointerCapture(e.pointerId); el.removeEventListener('pointermove',mv); el.removeEventListener('pointerup',up); }; el.addEventListener('pointermove',mv); el.addEventListener('pointerup',up); });
-  $('#dbPrevInfo').textContent=`${beeName(key)} — ${count} včel${count>=CAP?' (zkráceno)':''} · zeleně = už máš · najeď myší = jméno · kolečko=zoom`;
+let dbExpanded=new Set();
+function showDbPreview(key){ dbCurrentKey=key; dbExpanded=new Set([key]); renderOutline();
   $('#dbBrowse').style.display='none'; $('#dbPreview').style.display='flex'; $('#dbInsert').style.display=''; $('#dbBack').style.display=''; }
+function renderOutline(){ const box=$('#dbOutline'); if(!box) return; box.innerHTML=''; const owned=new Set(state.owned||[]); let total=0, need=0;
+  (function row(key,path,depth,anc){ total++; const r=beeDB.recipes[key], own=owned.has(key); const hasKids=r&&!own&&!anc.has(key); if(!own) need++;
+    const exp=dbExpanded.has(path); const div=document.createElement('div'); div.className='olrow'+(own?' owned':'');
+    div.style.paddingLeft=(6+depth*20)+'px';
+    div.innerHTML=`<span class="oltri">${hasKids?(exp?'▾':'▸'):''}</span><span class="olown ${own?'on':''}" title="Mám tuhle">${own?'✓':''}</span><span class="olname">${escapeHtml(beeName(key))}</span>${r?`<span class="olrec">= ${escapeHtml(beeName(r[0]))} + ${escapeHtml(beeName(r[1]))}</span>`:`<span class="olrec leaf">základní úl</span>`}`;
+    const tg=()=>{ if(!hasKids) return; exp?dbExpanded.delete(path):dbExpanded.add(path); renderOutline(); };
+    div.querySelector('.oltri').onclick=tg; div.querySelector('.olname').onclick=tg;
+    div.querySelector('.olown').onclick=e=>{ e.stopPropagation(); toggleOwned(key); renderOutline(); };
+    box.appendChild(div);
+    if(exp&&hasKids){ const a2=new Set(anc); a2.add(key); for(const p of r) row(p,path+'/'+p,depth+1,a2); }
+  })(dbCurrentKey, dbCurrentKey, 0, new Set());
+  $('#dbPrevInfo').textContent=`${beeName(dbCurrentKey)} · ${need} k vyšlechtění · klik na jméno = rozbal · ✓ = mám (ubyde)`; }
 function buildFromDB(targetKey){ if(!beeDB) return; const cx=(mapwrap.clientWidth/2-view.x)/view.k, cy=(mapwrap.clientHeight/2-view.y)/view.k; let count=0; const CAP=400; let rootId=null; const owned=new Set(state.owned||[]);
   (function build(key,anc,parentId){ if(count>=CAP) return; const own=owned.has(key); const it={id:uid(),text:beeName(key),status:own?'done':'todo',assignees:[],parentId:parentId||null,links:[],sectionIds:activeSec?[activeSec]:[],x:cx,y:cy,images:[]}; state.items.push(it); count++; if(!rootId) rootId=it.id;
     const r=beeDB.recipes[key]; if(r&&!own&&!anc.has(key)){ const a2=new Set(anc); a2.add(key); for(const p of r) build(p,a2,it.id); } })(targetKey,new Set(),null);
