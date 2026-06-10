@@ -183,12 +183,13 @@
   .dimgs .th .x { position:absolute; top:2px; right:2px; width:18px; height:18px; border-radius:50%; background:rgba(0,0,0,.55); color:#fff; font-size:12px; line-height:18px; text-align:center; cursor:pointer; }
   .lightbox { position:fixed; inset:0; background:rgba(0,0,0,.82); display:flex; align-items:center; justify-content:center; z-index:300; cursor:zoom-out; }
   .lightbox img { max-width:92%; max-height:92%; border-radius:8px; }
-  .node .nthumb.cover { width:100%; max-height:140px; object-fit:cover; border-radius:8px; margin-bottom:3px; display:block; cursor:zoom-in; }
+  .node .nthumb.cover { width:100%; max-height:340px; object-fit:contain; background:rgba(0,0,0,.16); border-radius:8px; margin-bottom:3px; display:block; cursor:zoom-in; }
+  .node.sized .nthumb.cover { max-height:none; flex:1 1 auto; min-height:0; }
   .node .ncap { font-size:10px; color:var(--muted); line-height:1.25; margin-bottom:5px; white-space:normal; overflow-wrap:anywhere; }
   .node .ncap.cover { text-align:center; }
   .node .nimgs { display:grid; gap:5px; margin-bottom:6px; }
   .node .ncell { display:flex; flex-direction:column; gap:2px; min-width:0; }
-  .node .nimgs .nthumb { width:100%; height:74px; object-fit:cover; border-radius:6px; cursor:zoom-in; }
+  .node .nimgs .nthumb { width:100%; height:74px; object-fit:contain; background:rgba(0,0,0,.16); border-radius:6px; cursor:zoom-in; }
   .node .nnotes { font-size:11.5px; color:var(--muted); line-height:1.35; margin:4px 0 2px; white-space:pre-wrap; overflow-wrap:anywhere; max-height:130px; overflow:auto; cursor:text; }
   .node .ncell .ncap { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-bottom:0; }
   .node .nmore { height:74px; border-radius:6px; background:var(--bg); display:flex; align-items:center; justify-content:center; font-size:12px; color:var(--muted); }
@@ -654,7 +655,7 @@ function renderMap(){
     if(hiddenIds.has(it.id)) continue;
     const st=STATES[it.status]||STATES.todo, stc=cssCol(st.color);
     const el=document.createElement('div'); el.className='node '+it.status+(selId===it.id?' sel':'')+(selSet.has(it.id)?' selm':'');
-    el.style.left=it.x+'px'; el.style.top=it.y+'px'; el.style.borderColor=itemColorHex(it); el.dataset.id=it.id; if(it.w){ el.style.width=it.w+'px'; el.style.maxWidth='none'; } if(it.h){ el.style.minHeight=it.h+'px'; }
+    el.style.left=it.x+'px'; el.style.top=it.y+'px'; el.style.borderColor=itemColorHex(it); el.dataset.id=it.id; if(it.w){ el.style.width=it.w+'px'; el.style.maxWidth='none'; } if(it.h){ el.style.minHeight=it.h+'px'; el.classList.add('sized'); }
     let imgHtml=''; const imgs=(it.images||[]).map(imgObj);
     if(imgs.length===1){ imgHtml=`<img class="nthumb cover" data-i="0" src="${imgs[0].src}">`; }
     else if(imgs.length>1){ const cols=it.imgCols||(imgs.length<=4?2:3);
