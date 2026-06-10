@@ -256,7 +256,7 @@
         <div class="searchbox" id="searchBox"><span>🔍</span><input id="searchInput" placeholder="hledej položku… (Enter = další)"><span class="scount" id="searchCount"></span></div>
         <div id="world"></div>
         <svg class="edges" id="edges"></svg>
-        <div class="maphint">2× klik = položka · ＋ rodiče/potomek · Shift+táhni = celá skupina · táhni z tečky = napojit · Ctrl+Z zpět</div>
+        <div class="maphint">2× klik = položka · ＋ = potomek/rodič · táhni z tečky = napojit · Shift+táhni = skupina · tah po prázdnu = výběr · mezerník/prostřední tl. = posun · Ctrl+F hledat · Ctrl+Z zpět</div>
         <div class="drawer" id="detail">
           <div class="dhead"><span id="dTitle"></span><button id="dClose">×</button></div>
           <div class="dbody">
@@ -418,16 +418,19 @@ function mergeStates(a,b){ // merge po položkách: novější mt vyhrává, tom
   const out={...b,...a};
   out.items=mergeArr(a.items,b.items); out.sections=mergeArr(a.sections,b.sections);
   const mm=new Map(); for(const m of (b.members||[])) mm.set(m.name,m); for(const m of (a.members||[])) mm.set(m.name,m); out.members=[...mm.values()];
-  if((b.ownedTs||0)>(a.ownedTs||0)){ out.owned=b.owned||[]; out.ownedTs=b.ownedTs; } else { out.owned=a.owned||[]; out.ownedTs=a.ownedTs||0; }
+  out.ownedM={}; for(const src of [b.ownedM||{},a.ownedM||{}]) for(const k in src){ const e=src[k], ex=out.ownedM[k]; if(!ex||e.ts>ex.ts) out.ownedM[k]=e; }
+  for(const [arr,ts] of [[a.owned||[],a.ownedTs||0],[b.owned||[],b.ownedTs||0]]) for(const k of arr) if(!out.ownedM[k]) out.ownedM[k]={o:1,ts};
+  out.owned=Object.keys(out.ownedM).filter(k=>out.ownedM[k].o); out.ownedTs=Math.max(a.ownedTs||0,b.ownedTs||0);
   if((b.metaTs||0)>(a.metaTs||0)){ out.waypoints=b.waypoints||{}; out.layoutDir=b.layoutDir; out.metaTs=b.metaTs; } else { out.waypoints=a.waypoints||{}; out.layoutDir=a.layoutDir; out.metaTs=a.metaTs||0; }
   const am=new Map(); for(const x of [...(b.activity||[]),...(a.activity||[])]) am.set(x.ts+'|'+x.who+'|'+x.id,x);
   out.activity=[...am.values()].sort((x,y)=>x.ts-y.ts).slice(-120);
   out.deleted=del; out.rev=Math.max(a.rev||0,b.rev||0);
   return out; }
+function persist(){ state.rev=(state.rev||0)+1; lastSnap=JSON.stringify(state); sync.save(structuredClone(state)); }
 function commit(){ stampChanges(); if(lastSnap!==null){ undoStack.push(lastSnap); if(undoStack.length>60) undoStack.shift(); redoStack.length=0; }
-  state.rev=(state.rev||0)+1; lastSnap=JSON.stringify(state); sync.save(structuredClone(state)); }
-function undo(){ if(!undoStack.length) return; redoStack.push(JSON.stringify(state)); const p=undoStack.pop(); state=JSON.parse(p); lastSnap=null; selId=null; commit(); renderAll(); }
-function redo(){ if(!redoStack.length) return; undoStack.push(JSON.stringify(state)); const n=redoStack.pop(); state=JSON.parse(n); lastSnap=null; selId=null; commit(); renderAll(); }
+  persist(); }
+function undo(){ if(!undoStack.length) return; const cur=JSON.stringify(state); redoStack.push(cur); state=JSON.parse(undoStack.pop()); lastSnap=cur; stampChanges(); persist(); selId=null; renderAll(); }
+function redo(){ if(!redoStack.length) return; const cur=JSON.stringify(state); undoStack.push(cur); state=JSON.parse(redoStack.pop()); lastSnap=cur; stampChanges(); persist(); selId=null; renderAll(); }
 function toast(msg){ let c=$('#toasts'); if(!c){ c=document.createElement('div'); c.id='toasts'; document.body.appendChild(c); }
   const t=document.createElement('div'); t.className='toast'; t.textContent=msg; c.appendChild(t);
   setTimeout(()=>{ t.classList.add('out'); setTimeout(()=>t.remove(),350); },4200); }
@@ -518,7 +521,7 @@ function renderTasks(){
     const groups=state.members.map(m=>({key:m.name,label:m.name,col:m.color,items:[]})); groups.push({key:'_u',label:'Nepřiřazeno',col:'#9aa0a6',items:[]});
     for(const it of doing){ if(!it.assignees.length) groups[groups.length-1].items.push(it); else for(const a of it.assignees)(groups.find(g=>g.key===a)||groups[groups.length-1]).items.push(it); }
     for(const g of groups){ if(!g.items.length) continue; const grp=document.createElement('div'); grp.className='grp';
-      grp.innerHTML=`<div class="grphead"><div class="gbar" style="background:${g.col}"></div><span class="gname">${g.label}</span><span class="gcount">${g.items.length}</span></div><div class="grpbody"></div>`;
+      grp.innerHTML=`<div class="grphead"><div class="gbar" style="background:${g.col}"></div><span class="gname">${escapeHtml(g.label)}</span><span class="gcount">${g.items.length}</span></div><div class="grpbody"></div>`;
       const body=grp.querySelector('.grpbody'); for(const it of g.items) flatRow(it,body); box.appendChild(grp); }
     return; }
   if(sortMode==='tree'){ roots().forEach(r=>treeRow(r,0,box)); if(!state.items.length) box.innerHTML='<div style="padding:14px;color:var(--muted);font-size:13px">Zatím nic. Přidej položku nahoře nebo 2× klikni na mapu.</div>'; return; }
@@ -529,7 +532,7 @@ function renderTasks(){
     for(const it of state.items){ if(!it.assignees.length) groups[groups.length-1].items.push(it); else for(const a of it.assignees)(groups.find(g=>g.key===a)||groups[groups.length-1]).items.push(it); } }
   for(const g of groups){ if(!g.items.length) continue;
     const grp=document.createElement('div'); grp.className='grp';
-    grp.innerHTML=`<div class="grphead"><div class="gbar" style="background:${g.col}"></div><span>${g.icon}</span><span class="gname">${g.label}</span><span class="gcount">${g.items.length}</span></div><div class="grpbody"></div>`;
+    grp.innerHTML=`<div class="grphead"><div class="gbar" style="background:${g.col}"></div><span>${escapeHtml(g.icon)}</span><span class="gname">${escapeHtml(g.label)}</span><span class="gcount">${g.items.length}</span></div><div class="grpbody"></div>`;
     const body=grp.querySelector('.grpbody'); for(const it of g.items) flatRow(it,body); box.appendChild(grp);
   }
 }
@@ -538,7 +541,7 @@ function rowBase(it,depth){
   const el=document.createElement('div'); el.className='trow '+it.status+(selId===it.id?' sel':''); el.style.paddingLeft=(7+depth*15)+'px'; el.dataset.id=it.id;
   const kidArr=childrenOf(it.id), kids=kidArr.length, dk=kidArr.filter(k=>k.status==='done').length, ck='c'+it.id, isc=collapsed.has(ck);
   const rdy = kids>0 && dk===kids && it.status!=='done' && it.status!=='stopped';
-  const avs=it.assignees.map(nm=>{const m=memberByName(nm);return `<div class="av" title="${nm}" style="background:${m?m.color:'#9aa0a6'}">${nm.slice(0,1).toUpperCase()}</div>`;}).join('');
+  const avs=it.assignees.map(nm=>{const m=memberByName(nm);return `<div class="av" title="${escapeHtml(nm)}" style="background:${m?m.color:'#9aa0a6'}">${escapeHtml(nm.slice(0,1).toUpperCase())}</div>`;}).join('');
   el.innerHTML=`<span class="twist">${kids?(isc?'▸':'▾'):''}</span>
     <div class="stbox" title="${st.lbl}" style="border-color:${stc};background:${it.status==='todo'?'transparent':stc}">${st.mark}</div>
     <div class="tcol" style="background:${itemColorHex(it)}"></div>
@@ -564,12 +567,12 @@ function rowBase(it,depth){
 }
 function treeRow(it,depth,box){ const {el,isc}=rowBase(it,depth); box.appendChild(el); if(!isc) childrenOf(it.id).forEach(c=>treeRow(c,depth+1,box)); }
 function flatRow(it,box){ const {el}=rowBase(it,0); el.querySelector('.twist').textContent=''; box.appendChild(el); }
-function escapeHtml(s){ return s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+function escapeHtml(s){ return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
 function openAssignMenu(e,id){ const it=itemById(id); const m=$('#popMenu'); m.innerHTML='';
   if(!state.members.length){ const d=document.createElement('div'); d.style.cssText='padding:8px 11px;font-size:12px;color:var(--muted)'; d.textContent='Zatím nikdo nepřipojen'; m.appendChild(d); }
   for(const mem of state.members){ const on=it.assignees.includes(mem.name); const b=document.createElement('button');
-    b.innerHTML=`<span class="sw" style="background:${mem.color}"></span>${mem.name} ${on?'✓':''}`; b.onclick=()=>{ toggleAssignee(id,mem.name); openAssignMenu(e,id); }; m.appendChild(b); }
+    b.innerHTML=`<span class="sw" style="background:${mem.color}"></span>${escapeHtml(mem.name)} ${on?'✓':''}`; b.onclick=()=>{ toggleAssignee(id,mem.name); openAssignMenu(e,id); }; m.appendChild(b); }
   showPop(m,e.target); }
 function showPopAt(m,x,y){ m.style.display='block'; m.style.left=Math.min(x,innerWidth-m.offsetWidth-10)+'px'; m.style.top=Math.min(y,innerHeight-m.offsetHeight-10)+'px'; setTimeout(()=>addEventListener('pointerdown',closePop),0); }
 function applyToSel(fn){ for(const id of selSet){ const it=itemById(id); if(it) fn(it); } commit(); renderAll(); }
@@ -579,9 +582,9 @@ function openSelectionMenu(e){ const m=$('#popMenu'); m.innerHTML='';
   const sep=()=>{ const d=document.createElement('div'); d.className='msep'; m.appendChild(d); };
   const sub=t=>{ const d=document.createElement('div'); d.className='mhd'; d.textContent=t; m.appendChild(d); };
   sub('Stav všem');
-  for(const k of STATE_CYCLE){ const s=STATES[k]; mk(`<span class="sw" style="background:${cssCol(s.color)}"></span>${s.lbl}`,()=>{ applyToSel(it=>{ if(k==='doing'&&it.status!=='doing') it.doingTs=Date.now(); it.status=k; }); m.style.display='none'; }); }
+  for(const k of STATE_CYCLE){ const s=STATES[k]; mk(`<span class="sw" style="background:${cssCol(s.color)}"></span>${s.lbl}`,()=>{ applyToSel(it=>{ if(k==='doing'&&it.status!=='doing') it.doingTs=Date.now(); it.status=k; logAct(it,k); }); m.style.display='none'; }); }
   sep(); sub('Sekce všem (přidat)');
-  for(const sx of state.sections){ mk(`<span class="sw" style="background:${sx.color}"></span>${sx.icon} ${sx.name}`,()=>{ applyToSel(it=>{ const a=itemSecIds(it); if(!a.includes(sx.id)) setSecIds(it,[...a,sx.id]); }); m.style.display='none'; }); }
+  for(const sx of state.sections){ mk(`<span class="sw" style="background:${sx.color}"></span>${escapeHtml(sx.icon)} ${escapeHtml(sx.name)}`,()=>{ applyToSel(it=>{ const a=itemSecIds(it); if(!a.includes(sx.id)) setSecIds(it,[...a,sx.id]); }); m.style.display='none'; }); }
   mk('Bez sekce (vyčistit)',()=>{ applyToSel(it=>setSecIds(it,[])); m.style.display='none'; });
   sep();
   mk('Smazat vybrané',()=>{ deleteSelection(); m.style.display='none'; },'danger');
@@ -612,7 +615,7 @@ function openNodeMenu(e,id){ const it=itemById(id); if(!it) return; const m=$('#
 function openSectionMenu(e,id){ const it=itemById(id); if(!it) return; const m=$('#popMenu'); m.innerHTML='';
   const cur=itemSecIds(it);
   const hd=document.createElement('div'); hd.style.cssText='padding:6px 11px 3px;font-size:11px;color:var(--muted)'; hd.textContent='Sekce — klidně víc, barvy se smíchají'; m.appendChild(hd);
-  for(const s of state.sections){ const on=cur.includes(s.id); const b=document.createElement('button'); b.innerHTML=`<span class="sw" style="background:${s.color}"></span>${s.icon} ${s.name}${on?' ✓':''}`; b.onclick=()=>{ toggleSection(id,s.id); activeSec=s.id; openSectionMenu(e,id); }; m.appendChild(b); }
+  for(const s of state.sections){ const on=cur.includes(s.id); const b=document.createElement('button'); b.innerHTML=`<span class="sw" style="background:${s.color}"></span>${escapeHtml(s.icon)} ${escapeHtml(s.name)}${on?' ✓':''}`; b.onclick=()=>{ toggleSection(id,s.id); activeSec=s.id; openSectionMenu(e,id); }; m.appendChild(b); }
   const bn=document.createElement('button'); bn.innerHTML=`<span class="sw" style="background:#9aa0a6"></span>Bez sekce`; bn.onclick=()=>{ clearSections(id); m.style.display='none'; }; m.appendChild(bn);
   showPopAt(m, e.clientX||60, e.clientY||120); }
 function showPop(m,a){ m.style.display='block'; const r=a.getBoundingClientRect(); m.style.left=Math.min(r.left,innerWidth-m.offsetWidth-10)+'px'; m.style.top=(r.bottom+4)+'px'; setTimeout(()=>addEventListener('pointerdown',closePop),0); }
@@ -833,15 +836,16 @@ const TEMPLATES={
   'Pro / proti':{t:'Téma',c:[{t:'Pro',c:['+ …','+ …']},{t:'Proti',c:['− …','− …']}]},
 };
 const tplNode=n=>typeof n==='string'?{t:n,c:[]}:{t:n.t,c:n.c||[]};
-function addTpl(node,parentId,x,y){ node=tplNode(node); const it={id:uid(),text:node.t,status:'todo',assignees:[],parentId:parentId||null,sectionIds:activeSec?[activeSec]:[],x,y,images:[]};
-  state.items.push(it); const n=node.c.length, ky=y-((n-1)*96)/2; node.c.forEach((k,i)=>addTpl(k,it.id,x+215,ky+i*96)); return it; }
+function addTpl(node,parentId,x,y,secIds){ node=tplNode(node); const sids=secIds!==undefined?secIds:(activeSec?[activeSec]:[]);
+  const it={id:uid(),text:node.t,status:'todo',assignees:[],parentId:parentId||null,sectionIds:[...sids],x,y,images:[]};
+  state.items.push(it); const n=node.c.length, ky=y-((n-1)*96)/2; node.c.forEach((k,i)=>addTpl(k,it.id,x+215,ky+i*96,sids)); return it; }
 async function insertTemplate(name){ const spec=TEMPLATES[name]; if(!spec) return;
   let children=spec.c;
   if(spec.gen){ const n=parseInt(await uiPrompt(`Kolik (${spec.gen.toLowerCase()}ů)?`, String(spec.def)),10); if(!n||n<1) return; children=Array.from({length:Math.min(n,30)},(_,i)=>`${spec.gen} ${i+1}`); }
   const target = selId && itemById(selId);
   if(target){ // šablona se aplikuje NA vybranou bunku – děti se pověsí pod ni
     const n=children.length, ky=target.y-((n-1)*96)/2;
-    children.forEach((k,i)=>addTpl(k,target.id,target.x+215,ky+i*96));
+    children.forEach((k,i)=>addTpl(k,target.id,target.x+215,ky+i*96,itemSecIds(target)));
     commit(); renderAll(); selectNode(target.id); return; }
   const cx=(mapwrap.clientWidth/2-view.x)/view.k, cy=(mapwrap.clientHeight/2-view.y)/view.k;
   const root=addTpl({t:spec.t,c:children},null,cx,cy); commit(); renderAll(); selectNode(root.id); }
@@ -883,7 +887,10 @@ function renderDbList(q){ const list=$('#dbList'); list.innerHTML=''; q=(q||'').
     row.innerHTML=`<span class="dbown ${own?'on':''}" title="Mám tuhle včelu (strom se u ní zastaví)">${own?'✓':''}</span><span class="dbinfo"><b>${escapeHtml(e.name)}</b><span class="dbmod">${e.mod}</span>${r?`<div class="dbrec">= ${escapeHtml(beeName(r[0]))} + ${escapeHtml(beeName(r[1]))}</div>`:''}</span>`;
     row.querySelector('.dbown').onclick=ev=>{ ev.stopPropagation(); toggleOwned(e.key); renderDbList($('#dbSearch').value); };
     row.querySelector('.dbinfo').onclick=()=>showDbPreview(e.key); list.appendChild(row); } }
-function toggleOwned(key){ const s=new Set(state.owned||[]); s.has(key)?s.delete(key):s.add(key); state.owned=[...s]; commit(); }
+function toggleOwned(key){ state.ownedM=state.ownedM||{}; for(const k of (state.owned||[])) if(!state.ownedM[k]) state.ownedM[k]={o:1,ts:0};
+  const cur=!!(state.ownedM[key]&&state.ownedM[key].o)||(state.owned||[]).includes(key);
+  state.ownedM[key]={o:cur?0:1,ts:Date.now()};
+  state.owned=Object.keys(state.ownedM).filter(k=>state.ownedM[k].o); commit(); }
 let dbCurrentKey=null;
 function showDbBrowse(){ $('#dbBrowse').style.display='flex'; $('#dbPreview').style.display='none'; $('#dbInsert').style.display='none'; $('#dbBack').style.display='none'; }
 function computeLayered(items, byId, vertical){
@@ -957,15 +964,15 @@ mapwrap.addEventListener('contextmenu',e=>{ if(e.target.closest('.node')) return
 mapwrap.addEventListener('wheel',e=>{ e.preventDefault(); const r=mapwrap.getBoundingClientRect(),mx=e.clientX-r.left,my=e.clientY-r.top; const f=e.deltaY<0?1.1:1/1.1,nk=Math.min(2.5,Math.max(0.22,view.k*f)); view.x=mx-(mx-view.x)*(nk/view.k); view.y=my-(my-view.y)*(nk/view.k); view.k=nk; applyView(); },{passive:false});
 addEventListener('keydown',e=>{ const ae=document.activeElement; if(ae&&ae.getAttribute&&ae.getAttribute('contenteditable')==='true') return; const tag=(ae?.tagName||'').toLowerCase(); if(tag==='input'||tag==='select') return; if(!selId) return;
   if(e.key==='Tab'){ e.preventDefault(); const c=addItem({parentId:selId}); editOnMap(c.id); }
-  else if(e.key==='Enter'){ e.preventDefault(); const p=itemById(selId); const c=addItem({parentId:p.parentId}); editOnMap(c.id); }
+  else if(e.key==='Enter'){ e.preventDefault(); const p=itemById(selId); if(!p) return; const c=addItem({parentId:p.parentId}); editOnMap(c.id); }
   else if(e.key==='Delete'||e.key==='Backspace'){ e.preventDefault(); if(e.shiftKey) deleteGroup(selId); else deleteItem(selId); }
   else if(e.key==='F2'){ const it=itemById(selId); if(it) startEdit(it); }
-  else if(e.key.length===1&&!e.ctrlKey&&!e.metaKey){ const it=itemById(selId); if(it){ const el=elFor(it.id); el.querySelector('.ntxt').textContent=''; startEdit(it); } } });
+  else if(e.key.length===1&&!e.ctrlKey&&!e.metaKey){ const it=itemById(selId); if(it){ const el=elFor(it.id); if(!el) return; el.querySelector('.ntxt').textContent=''; startEdit(it); } } });
 
 /* ---------- chips ---------- */
 function renderSecbar(){ const bar=$('#secbar'); bar.innerHTML='';
   for(const s of state.sections){ const chip=document.createElement('div'); chip.className='chip'+(focusSec===s.id?' focus':'');
-    chip.innerHTML=`<span class="cdot" style="background:${s.color}"></span><span>${s.icon} ${s.name}</span><span class="cedit">✎</span>`;
+    chip.innerHTML=`<span class="cdot" style="background:${s.color}"></span><span>${escapeHtml(s.icon)} ${escapeHtml(s.name)}</span><span class="cedit">✎</span>`;
     chip.onclick=ev=>{ if(ev.target.classList.contains('cedit')){ openSecEdit(ev,s); return; } if(selSet.size>1){ applyToSel(it=>{ const a=itemSecIds(it); if(!a.includes(s.id)) setSecIds(it,[...a,s.id]); }); activeSec=s.id; return; } if(selId){ toggleSection(selId,s.id); activeSec=s.id; return; } activeSec=s.id; renderSecbar(); fit(s.id); };
     bar.appendChild(chip); }
   const add=document.createElement('div'); add.className='chip addsec'; add.textContent='＋ sekce';
@@ -1088,7 +1095,7 @@ $('#focusHist').onclick=e=>{ const m=$('#popMenu'); m.innerHTML=''; const hd=doc
   showPop(m,e.target); };
 setInterval(()=>{ if(me) renderFocus(); },30000);
 /* ---------- render all ---------- */
-function renderAll(){ rebuildSectionSelect(); renderSecbar(); renderTasks(); renderMap(); renderFocus(); if(detailId){ const it=itemById(detailId); if(it) $('#dTitle').textContent=it.text||'Položka'; else closeDetail(); } }
+function renderAll(){ rebuildSectionSelect(); renderSecbar(); renderTasks(); renderMap(); renderFocus(); renderPresence(); if(detailId){ const it=itemById(detailId); if(it) $('#dTitle').textContent=it.text||'Položka'; else closeDetail(); } }
 function rebuildSectionSelect(){ const sel=$('#taskSection'); const cur=sel.value; sel.innerHTML=''; for(const s of state.sections){ const o=document.createElement('option'); o.value=s.id; o.textContent=`${s.icon} ${s.name}`; sel.appendChild(o); } if(cur&&sectionById(cur)) sel.value=cur; else if(activeSec) sel.value=activeSec; }
 
 /* ---------- wires ---------- */
@@ -1159,7 +1166,7 @@ async function enableShare(){ const url=$('#shUrl').value.trim(), key=$('#shKey'
   sync=ns; commit(); sync.subscribe(onRemote); renderPresence(); renderAll(); updateShareUI(); $('#shareModal').style.display='none'; uiAlert('Sdílení zapnuté ✓  Pošli bráchovi zvací odkaz.'); }
 function disableShare(){ localStorage.removeItem('mbt:supa'); localStorage.setItem('mbt:nosupa','1'); if(sync&&sync.stop) sync.stop(); sync=new LocalSync(room); sync.subscribe(onRemote); updateShareUI(); $('#shareModal').style.display='none'; }
 function inviteLink(){ const c=getSupaCreds(); if(!c||!c.url){ uiAlert('Nejdřív zapni sdílení.'); return; } const p=btoa(unescape(encodeURIComponent(JSON.stringify({url:c.url,key:c.key,room})))); const link=location.origin+location.pathname+'#share='+p; navigator.clipboard?.writeText(link); $('#shInvite').textContent='Zkopírováno ✓'; setTimeout(()=>$('#shInvite').textContent='📋 Kopírovat zvací odkaz',1600); }
-function renderPresence(){ $('#presence').innerHTML=state.members.map(m=>`<span class="pchip"><span class="pdot" style="background:${m.color}"></span>${m.name}</span>`).join(''); }
+function renderPresence(){ $('#presence').innerHTML=state.members.map(m=>`<span class="pchip"><span class="pdot" style="background:${m.color}"></span>${escapeHtml(m.name)}</span>`).join(''); }
 start();
 </script>
 </body>
