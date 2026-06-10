@@ -492,7 +492,11 @@ function itemRYB(it){ const ids=itemSecIds(it); if(!ids.length) return null; let
 function itemColorHex(it){ const ids=itemSecIds(it); if(!ids.length) return '#9aa0a6'; if(ids.length===1) return sectionColor(ids[0]); return rgb2hex(...ryb2rgb(...itemRYB(it))); }
 function toggleAssignee(id,name){ const it=itemById(id); if(!it) return; it.assignees=it.assignees.includes(name)?it.assignees.filter(a=>a!==name):[...it.assignees,name]; commit(); renderAll(); }
 function reparent(childId,parentId){ if(childId===parentId||isAncestor(childId,parentId)) return; const c=itemById(childId); if(!c) return; c.parentId=parentId; commit(); renderAll(); }
-function addParentLink(childId,parentId){ if(childId===parentId) return; const c=itemById(childId); if(!c||isAncestor(childId,parentId)) return;
+function reachesUp(fromId,targetId){ const seen=new Set(); const st=[fromId]; let g=0;
+  while(st.length&&g++<5000){ const c=st.pop(); if(c===targetId) return true; if(seen.has(c)) continue; seen.add(c);
+    const it=itemById(c); if(!it) continue; if(it.parentId) st.push(it.parentId); (it.links||[]).forEach(l=>st.push(l)); }
+  return false; }
+function addParentLink(childId,parentId){ if(childId===parentId) return; const c=itemById(childId); if(!c||reachesUp(parentId,childId)) return;
   if(!c.parentId){ c.parentId=parentId; } else if(c.parentId!==parentId){ c.links=c.links||[]; if(!c.links.includes(parentId)) c.links.push(parentId); }
   commit(); renderAll(); }
 function addParentItem(childId){ const c=itemById(childId); if(!c) return;
@@ -1001,11 +1005,12 @@ function pickImages(){ const inp=document.createElement('input'); inp.type='file
 function renderImages(){ const it=itemById(detailId); if(!it) return; it.images=(it.images||[]).map(imgObj); const box=$('#dImgs'); box.innerHTML='';
   it.images.forEach((im,i)=>{ const th=document.createElement('div'); th.className='th'; th.draggable=true;
     th.innerHTML=`<img src="${im.src}" draggable="false"><div class="x">×</div>`;
-    th.querySelector('img').onclick=()=>lightbox(it.images,i);
-    th.querySelector('.x').onclick=e=>{ e.stopPropagation(); it.images.splice(i,1); commit(); renderImages(); renderMap(); };
+    const IT=()=>itemById(detailId);
+    th.querySelector('img').onclick=()=>{ const itx=IT(); if(itx&&itx.images) lightbox(itx.images,Math.min(i,itx.images.length-1)); };
+    th.querySelector('.x').onclick=e=>{ e.stopPropagation(); const itx=IT(); if(itx&&itx.images){ itx.images.splice(i,1); commit(); renderImages(); renderMap(); } };
     th.ondragstart=e=>{ e.dataTransfer.setData('mbtimg',String(i)); e.dataTransfer.effectAllowed='move'; };
     th.ondragover=e=>{ if([...e.dataTransfer.types].includes('mbtimg')) e.preventDefault(); };
-    th.ondrop=e=>{ const f=e.dataTransfer.getData('mbtimg'); if(f==='') return; e.preventDefault(); e.stopPropagation(); const from=+f; if(from===i) return; const [m]=it.images.splice(from,1); it.images.splice(i,0,m); commit(); renderImages(); renderMap(); };
+    th.ondrop=e=>{ const f=e.dataTransfer.getData('mbtimg'); if(f==='') return; e.preventDefault(); e.stopPropagation(); const from=+f; if(from===i) return; const itx=IT(); if(itx&&itx.images){ const [m]=itx.images.splice(from,1); itx.images.splice(i,0,m); commit(); renderImages(); renderMap(); } };
     box.appendChild(th); });
   const add=document.createElement('div'); add.className='th addimg'; add.textContent='＋'; add.title='Přidat obrázky'; add.onclick=pickImages; box.appendChild(add); }
 function lightbox(imgs,idx){ if(typeof imgs==='string') imgs=[imgs]; let i=idx||0; const d=document.createElement('div'); d.className='lightbox';
@@ -1022,12 +1027,13 @@ function closeDetail(){ detailId=null; $('#detail').classList.remove('open'); }
 function renderMats(){ const it=itemById(detailId); if(!it) return; const box=$('#dMats'); box.innerHTML='';
   it.materials.forEach((mt,i)=>{ const r=document.createElement('div'); r.className='matrow';
     const esc=s=>String(s==null?'':s).replace(/"/g,'&quot;');
+    const M=()=>{ const itx=itemById(detailId); return itx&&itx.materials?itx.materials[i]:null; };
     r.innerHTML=`<span class="mhave ${mt.h?'on':''}" title="Mám to">${mt.h?'✓':''}</span><input class="mn ${mt.h?'have':''}" placeholder="materiál" value="${esc(mt.n)}"><input class="mq" placeholder="0" value="${esc(mt.q)}"><span class="mqv"></span><button class="mdel">×</button>`;
-    r.querySelector('.mhave').onclick=()=>{ mt.h=!mt.h; commit(); renderMats(); renderMap(); };
-    const upd=()=>{ r.querySelector('.mqv').textContent='= '+fmtN(safeNum(mt.q)*(safeNum(it.mult)||1)); };
-    r.querySelector('.mn').oninput=e=>{ mt.n=e.target.value; debCommit(); };
-    r.querySelector('.mq').oninput=e=>{ mt.q=e.target.value; upd(); renderTotal(); debCommit(); };
-    r.querySelector('.mdel').onclick=()=>{ it.materials.splice(i,1); commit(); renderMats(); };
+    r.querySelector('.mhave').onclick=()=>{ const m=M(); if(!m) return; m.h=!m.h; commit(); renderMats(); renderMap(); };
+    const upd=()=>{ const m=M(), itx=itemById(detailId); r.querySelector('.mqv').textContent='= '+fmtN(safeNum(m?m.q:0)*(safeNum(itx?itx.mult:1)||1)); };
+    r.querySelector('.mn').oninput=e=>{ const m=M(); if(m){ m.n=e.target.value; debCommit(); } };
+    r.querySelector('.mq').oninput=e=>{ const m=M(); if(m){ m.q=e.target.value; upd(); renderTotal(); debCommit(); } };
+    r.querySelector('.mdel').onclick=()=>{ const itx=itemById(detailId); if(itx&&itx.materials){ itx.materials.splice(i,1); commit(); renderMats(); renderMap(); } };
     box.appendChild(r); upd(); });
   renderTotal(); }
 function renderTotal(){ const it=itemById(detailId); if(!it) return; const mult=safeNum(it.mult)||1;
@@ -1095,7 +1101,11 @@ $('#focusHist').onclick=e=>{ const m=$('#popMenu'); m.innerHTML=''; const hd=doc
   showPop(m,e.target); };
 setInterval(()=>{ if(me) renderFocus(); },30000);
 /* ---------- render all ---------- */
-function renderAll(){ rebuildSectionSelect(); renderSecbar(); renderTasks(); renderMap(); renderFocus(); renderPresence(); if(detailId){ const it=itemById(detailId); if(it) $('#dTitle').textContent=it.text||'Položka'; else closeDetail(); } }
+function renderAll(){ rebuildSectionSelect(); renderSecbar(); renderTasks(); renderMap(); renderFocus(); renderPresence();
+  if(detailId){ const it=itemById(detailId); if(!it){ closeDetail(); }
+    else { $('#dTitle').textContent=it.text||'Položka';
+      const ae=document.activeElement, pane=$('#detail');
+      if(!(ae&&pane.contains(ae))){ $('#dNotes').value=it.notes||''; $('#dMult').value=it.mult==null?1:it.mult; $('#dCols').value=it.imgCols||''; it.materials=it.materials||[]; it.images=it.images||[]; renderMats(); renderImages(); } } } }
 function rebuildSectionSelect(){ const sel=$('#taskSection'); const cur=sel.value; sel.innerHTML=''; for(const s of state.sections){ const o=document.createElement('option'); o.value=s.id; o.textContent=`${s.icon} ${s.name}`; sel.appendChild(o); } if(cur&&sectionById(cur)) sel.value=cur; else if(activeSec) sel.value=activeSec; }
 
 /* ---------- wires ---------- */
