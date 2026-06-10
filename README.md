@@ -26,7 +26,7 @@ Velký svítící pruh nahoře: **co právě děláš + jak dlouho**.
 | Nová položka | 2× klik do prázdna / pravý klik → Nová položka |
 | Přejmenovat | 2× klik na název (Tab = skoč na další prázdnou) |
 | Poznámky/detail | 2× klik na tělo bubliny, nebo 📋 |
-| Potomek / rodič | ＋ vpravo dole (výstup) / ＋ vlevo dole (vstup); Tab/Enter na vybrané |
+| Potomek / rodič / sourozenec | ＋ vpravo dole (výstup) / ＋ vlevo dole (vstup); Tab = potomek, Enter = sourozenec |
 | Napojit existující | táhni z modré tečky rodiče na dítě |
 | Stav | klik na čtvereček (volný → dělá se → hotovo → stopped) |
 | Posun jedné bubliny | táhni; **Shift+táhni = celá propojená skupina** |
@@ -68,7 +68,7 @@ V 📋 detailu: řádky materiálu (množství umí počty: `9*64`, `2*27+5`) + 
 
 ## Šablony
 
-Tlačítko **Šablona** (nebo pravý klik): Brainstorm / Cíl→kroky / Postup / Projekt / Denní plán / Rozhodnutí / Pro-proti — **ptají se na počet kroků**; když máš vybranou bunku, pověsí se pod ni. Dále **✨ Vytvořit strom (klikací)** — formulář: jméno + „＋ vstupy" do hloubky.
+Tlačítko **Šablona** (nebo pravý klik): **Brainstorm / Cíl→kroky / Postup se ptají na počet kroků**; Projekt / Denní plán / Rozhodnutí / Pro-proti mají pevnou strukturu. Když máš vybranou bunku, šablona se pověsí pod ni (a zdědí její sekce). Dále **✨ Vytvořit strom (klikací)** — formulář: jméno + „＋ vstupy" do hloubky.
 
 ## Sdílení a data
 
