@@ -123,6 +123,12 @@
   .node .nmat:hover { background:var(--hover); }
   .node .nmat.have { color:#46c46a; text-decoration:line-through; opacity:.75; }
   .node .nmatsum { font-size:10px; color:var(--muted); margin-top:2px; }
+  .node .nkids { margin:4px 0 2px; border-top:1px dashed var(--line); padding-top:4px; }
+  .node .nkid { font-size:11.5px; color:var(--text); padding:1px 2px; border-radius:4px; cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .node .nkid:hover { background:var(--hover); }
+  .node .nkid.done { color:#46c46a; text-decoration:line-through; opacity:.8; }
+  .node .nkid.doing { color:var(--st-doing); }
+  .node .nkid.stopped { color:var(--muted); text-decoration:line-through; }
   .node .navs { display:flex; gap:2px; flex:none; cursor:pointer; }
   .node .nav2 { width:15px; height:15px; border-radius:50%; font-size:9px; color:#fff; display:flex; align-items:center; justify-content:center; font-weight:700; border:1px solid rgba(255,255,255,.3); }
   .toolbar button.on { background:#8ab4f8; color:#0e2c17; border-color:#8ab4f8; font-weight:600; }
@@ -606,7 +612,7 @@ function openNodeMenu(e,id){ const it=itemById(id); if(!it) return; const m=$('#
   add('Materiál & poznámky',()=>{ m.style.display='none'; openDetail(id); });
   if(it.bee){ const ow=(state.owned||[]).includes(it.bee);
     add(ow?'🐝 Odznačit „mám ji“':'🐝 Mám tuhle včelu',()=>{ m.style.display='none'; toggleOwned(it.bee); it.status=ow?'todo':'done'; commit(); renderAll(); }); }
-  if(childrenOf(id).length) add(it.col?'Rozbalit větev':'Sbalit větev (skrýt potomky)',()=>{ m.style.display='none'; it.col=!it.col; commit(); renderMap(); });
+  if(childrenOf(id).length) add(it.col?'Rozbalit větev':'Sbalit do checklistu (skryje bubliny potomků)',()=>{ m.style.display='none'; it.col=!it.col; commit(); renderMap(); });
   hd('Stav');
   for(const k of STATE_CYCLE){ const s=STATES[k]; const b=document.createElement('button'); b.innerHTML=`<span class="sw" style="background:${cssCol(s.color)}"></span>${s.lbl}${it.status===k?'  ✓':''}`; b.onclick=()=>{ if(k==='doing'&&it.status!=='doing') it.doingTs=Date.now(); it.status=k; logAct(it,k); commit(); renderAll(); m.style.display='none'; }; m.appendChild(b); }
   sep();
@@ -667,7 +673,11 @@ function renderMap(){
     const ready = kk.length>0 && dk===kk.length && it.status!=='done' && it.status!=='stopped';
     if(ready) el.classList.add('ready');
     const progHtml = it.col? `<span class="ncol" title="Rozbalit větev (+${descIds(it.id).size} skryto)">▸ +${descIds(it.id).size}</span>` : (kk.length? `<span class="nprog${ready?' go':''}" title="${ready?'Vstupy hotové – můžeš začít!':'hotovo/vstupů · klik = sbalit větev'}">${ready?'▶ ':''}${dk}/${kk.length}</span>`:'');
-    el.innerHTML=`<div class="nrow"><div class="nst" title="${st.lbl}" style="border-color:${stc};background:${it.status==='todo'?'transparent':stc}">${st.mark}</div>${it.bee?'<span class="nbee" title="🐝 '+escapeHtml(it.text)+'" style="background:'+hashColor(it.bee)+'"></span>':''}<div class="ntxt" contenteditable="false"></div>${(it.assignees||[]).length?'<span class="navs">'+it.assignees.map(nm=>{const mb=memberByName(nm);return '<span class="nav2" title="'+escapeHtml(nm)+'" style="background:'+(mb?mb.color:'#9aa0a6')+'">'+escapeHtml(nm.slice(0,1).toUpperCase())+'</span>';}).join('')+'</span>':''}${progHtml}</div>${it.notes?'<div class="nnotes">'+escapeHtml(it.notes)+'</div>':''}${matHtml}${imgHtml}
+    let kidsHtml='';
+    if(it.col&&kk.length){ kidsHtml='<div class="nkids" title="klik = hotovo / zpět">'+kk.slice(0,14).map(k=>{ const g=childrenOf(k.id); const sub=g.length?` ${g.filter(x=>x.status==='done').length}/${g.length}`:'';
+      const ic=k.status==='done'?'✓':k.status==='doing'?'▶':k.status==='stopped'?'×':'○';
+      return `<div class="nkid ${k.status}" data-ki="${k.id}">${ic} ${escapeHtml(k.text||'…')}${sub}</div>`; }).join('')+(kk.length>14?'<div class="nkid">…+'+(kk.length-14)+'</div>':'')+'</div>'; }
+    el.innerHTML=`<div class="nrow"><div class="nst" title="${st.lbl}" style="border-color:${stc};background:${it.status==='todo'?'transparent':stc}">${st.mark}</div>${it.bee?'<span class="nbee" title="🐝 '+escapeHtml(it.text)+'" style="background:'+hashColor(it.bee)+'"></span>':''}<div class="ntxt" contenteditable="false"></div>${(it.assignees||[]).length?'<span class="navs">'+it.assignees.map(nm=>{const mb=memberByName(nm);return '<span class="nav2" title="'+escapeHtml(nm)+'" style="background:'+(mb?mb.color:'#9aa0a6')+'">'+escapeHtml(nm.slice(0,1).toUpperCase())+'</span>';}).join('')+'</span>':''}${progHtml}</div>${it.notes?'<div class="nnotes">'+escapeHtml(it.notes)+'</div>':''}${kidsHtml}${matHtml}${imgHtml}
       <div class="nclose">×</div><div class="nport"></div><div class="nadd" title="Přidat potomek (výstup →)">＋</div><div class="naddl" title="Přidat rodiče (← vstup)">＋</div>`;
     const tx=el.querySelector('.ntxt'); tx.textContent=it.text||''; tx.title=it.text||'';
     wireNode(el,it); world.appendChild(el);
@@ -706,11 +716,12 @@ function wireNode(el,it){
   el.querySelector('.nst').onclick=e=>{ e.stopPropagation(); setStatus(it.id); };
   const pg=el.querySelector('.nprog')||el.querySelector('.ncol'); if(pg) pg.onclick=e=>{ e.stopPropagation(); it.col=!it.col; commit(); renderMap(); };
   const nv=el.querySelector('.navs'); if(nv) nv.onclick=e=>{ e.stopPropagation(); openAssignMenu(e,it.id); };
+  el.querySelectorAll('.nkid[data-ki]').forEach(kd=>kd.onclick=e=>{ e.stopPropagation(); const k=itemById(kd.dataset.ki); if(!k) return; const nk=k.status==='done'?'todo':'done'; k.status=nk; logAct(k,nk); commit(); renderAll(); });
   el.querySelectorAll('.nmat[data-mi]').forEach(md=>md.onclick=e=>{ e.stopPropagation(); const m=(it.materials||[])[+md.dataset.mi]; if(m){ m.h=!m.h; commit(); renderMap(); if(detailId===it.id) renderMats(); } });
   el.querySelectorAll('.nthumb').forEach(im=>{ im.draggable=false; im.onclick=e=>{ e.stopPropagation(); lightbox(it.images,+im.dataset.i||0); }; });
   const nn=el.querySelector('.nnotes'); if(nn) nn.onclick=e=>{ e.stopPropagation(); openDetail(it.id); };
   el.addEventListener('pointerdown',e=>{
-    if(['nport','nclose','nadd','naddl','nst','nthumb','nmore','nnotes','nprog','ncol','nmat','nmats','nmatsum','navs','nav2'].some(c=>e.target.classList.contains(c))) return;
+    if(['nport','nclose','nadd','naddl','nst','nthumb','nmore','nnotes','nprog','ncol','nmat','nmats','nmatsum','navs','nav2','nkid','nkids'].some(c=>e.target.classList.contains(c))) return;
     if(txt.getAttribute('contenteditable')==='true') return;
     const rect=el.getBoundingClientRect(), th=11;
     const nl=e.clientX-rect.left<th, nr=rect.right-e.clientX<th, nt=e.clientY-rect.top<th, nb=rect.bottom-e.clientY<th;
@@ -768,19 +779,20 @@ function renderEdges(){
   const orient={}; for(const it of state.items){ const tg=state.items.filter(c=>c.parentId===it.id||(c.links||[]).includes(it.id)); if(tg.length) orient[it.id]=tg.every(c=>c.y-it.y>=60)?'v':'h'; }
   let reach=null; // potomci vybraného uzlu (kam vedou šipky)
   if(selId){ reach=new Set([selId]); const st=[selId]; while(st.length){ const cur=st.pop(); for(const it of state.items){ if(!reach.has(it.id) && [it.parentId,...(it.links||[])].includes(cur)){ reach.add(it.id); st.push(it.id); } } } }
-  let html=`<defs><marker id="ar" markerWidth="9" markerHeight="9" refX="6.5" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#5d626b"/></marker><marker id="arL" markerWidth="10" markerHeight="10" refX="6.5" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#8ab4f8"/></marker></defs>`;
+  let html=`<defs><marker id="ar" markerWidth="9" markerHeight="9" refX="6.5" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#cdd3db"/></marker><marker id="arL" markerWidth="10" markerHeight="10" refX="6.5" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#8ab4f8"/></marker></defs>`;
   const draw=(a,b,lit)=>{ const sa=nodeSize(a.id),sb=nodeSize(b.id);
-    const stroke=lit?'#8ab4f8':'#5d626b', sw=lit?3:2, op=(reach&&!lit)?0.12:1, attrs=`fill="none" stroke="${stroke}" stroke-width="${sw}" stroke-opacity="${op}" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#${lit?'arL':'ar'})"`;
+    const stroke=lit?'#8ab4f8':'#cdd3db', sw=lit?3:2, op=(reach&&!lit)?0.12:1, attrs=`fill="none" stroke="${stroke}" stroke-width="${sw}" stroke-opacity="${op}" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#${lit?'arL':'ar'})"`;
+    const seg=d=>`<path d="${d}" fill="none" stroke="rgba(8,10,12,.6)" stroke-width="${sw+2.6}" stroke-opacity="${op}" stroke-linecap="round" stroke-linejoin="round"/><path d="${d}" ${attrs}/>`;
     const wp=state.waypoints&&state.waypoints[a.id+'|'+b.id];
-    if(wp&&wp.length){ const pts=[{x:a.x+sa.w/2,y:a.y},...wp,{x:b.x-sb.w/2,y:b.y}].map(ts); return `<path d="${smoothPath(pts)}" ${attrs}/>`; }
+    if(wp&&wp.length){ const pts=[{x:a.x+sa.w/2,y:a.y},...wp,{x:b.x-sb.w/2,y:b.y}].map(ts); return seg(smoothPath(pts)); }
     const dxa=b.x-a.x, dya=b.y-a.y;
     const horiz = orient[a.id]!=='v';
     if(!horiz){ const sg=dya>=0?1:-1; const p1=ts({x:a.x,y:a.y+sg*sa.h/2}), p2=ts({x:b.x,y:b.y-sg*sb.h/2}); const my=(p1.y+p2.y)/2, hx=p2.x>=p1.x?1:-1, r=Math.max(0,Math.min(11,Math.abs(p2.x-p1.x)/2,Math.abs(p2.y-p1.y)/2));
       const d=(Math.abs(p2.x-p1.x)<2||r<1)?`M${p1.x},${p1.y} L${p2.x},${p2.y}`:`M${p1.x},${p1.y} L${p1.x},${my-sg*r} Q${p1.x},${my} ${p1.x+hx*r},${my} L${p2.x-hx*r},${my} Q${p2.x},${my} ${p2.x},${my+sg*r} L${p2.x},${p2.y}`;
-      return `<path d="${d}" ${attrs}/>`; }
+      return seg(d); }
     const sg=dxa>=0?1:-1, o=Math.max(28,Math.abs(dxa)*0.42);
     const p1=ts({x:a.x+sg*sa.w/2,y:a.y}), p2=ts({x:b.x-sg*sb.w/2,y:b.y}), c1=ts({x:a.x+sg*(sa.w/2+o),y:a.y}), c2=ts({x:b.x-sg*(sb.w/2+o),y:b.y});
-    return `<path d="M${p1.x},${p1.y} C${c1.x},${c1.y} ${c2.x},${c2.y} ${p2.x},${p2.y}" ${attrs}/>`; };
+    return seg(`M${p1.x},${p1.y} C${c1.x},${c1.y} ${c2.x},${c2.y} ${p2.x},${p2.y}`); };
   let base='',litS=''; const push=(a,b)=>{ const lit=!!(reach&&reach.has(a.id)); (lit?(litS+=draw(a,b,true)):(base+=draw(a,b,false))); };
   for(const it of state.items){ if(hiddenIds.has(it.id)) continue; const a=it.parentId&&itemById(it.parentId); if(a&&!hiddenIds.has(a.id)) push(a,it);
     for(const lid of (it.links||[])){ const l=itemById(lid); if(l&&l.id!==it.parentId&&!hiddenIds.has(l.id)) push(l,it); } }
